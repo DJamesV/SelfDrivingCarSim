@@ -24,7 +24,7 @@ G = (0,255,0) #green
 B = (0,0,255) #blue
 Y = (255,255,0) #yellow
 BL = (0,0,0) #black - note B for blue (as in rgb) and BL for BLack
-screenLightness = 75 # how dark a gray the backgrond is
+screenLightness = 75 # how light a gray the backgrond is - higher means lighter lower means darker, range 0-255
 screenColor = (screenLightness, screenLightness, screenLightness) # the color of the screen as a tuple (r,g,b)
 
 ##screen vars
@@ -37,9 +37,60 @@ clock=pygame.time.Clock()
 carWidth = 50
 carHeight = carWidth*(7/3) #would recommend keeping this ratio - approximately the ratio with actual cars
 maxSpeed = 150/fRate #this is set relative to frame rate so that the speed stays consant even if the frame rate changes
+acceleration = 30/fRate #this is set  relative to frame rate so that it will stay the same as the frame rate changes
+friction = 5/fRate #set relative to frame rate so it stays constant
+carTurnSpeed = 10*(1/8)*math.pi/fRate
+def rotate(object, turningLeft: bool):
+    minMax = [object.surfDims, object.surfDims, 0,0]
+    minMaxChanged = [False, False, False, False]
+    minMaxDefault = [0,0, object.surfDims,object.surfDims]
+    newPoints = []
+    for point in object.polyPoints:
+        if point[0] != 0:
+            theta = math.atan((point[1]/point[0]))
+            if point[0] < 0:
+                theta += math.pi
+        elif point[1] > 0:
+            theta = 0.5*math.pi
+        else:
+            theta = 1.5*math.pi
+        length = (point[0]**2 + point[1]**2)**0.5
+        if turningLeft:
+            px = length*math.cos(theta+object.turnSpeed)
+            py = length*math.sin(theta+object.turnSpeed)
+        else:
+            px = length*math.cos(theta-object.turnSpeed)
+            py = length*math.sin(theta-object.turnSpeed)
+        newPoints.append((px,py))
+        if px < minMax[0]:
+            minMax[0] = px
+            minMaxChanged[0] = True
+        if px > minMax[2]:
+            minMax[2] = px
+            minMaxChanged[2] = True
+        if py < minMax[1]:
+            minMax[1] = py
+            minMaxChanged[1] = True
+        if py > minMax[3]:
+            minMax[3] = py
+            minMaxChanged[3] = True
+    for i in range(len(minMax)):
+        if minMaxChanged[i] == False:
+            minMax[i] = minMaxDefault[i]
+    xDiff = (((minMax[2]-minMax[0])/2)+minMax[0])-(object.surfDims/2)
+    yDiff = (((minMax[3]-minMax[1])/2)+minMax[1])-(object.surfDims/2)
+    for i in range(len(newPoints)):
+        px, py = newPoints[i]
+        px -= xDiff
+        py -= yDiff
+        newPoints[i] = px, py
+    object.polyPoints = newPoints
+    object.surf.fill(BL)
+    object.polygon = pygame.draw.polygon(object.surf, W, object.polyPoints)
 
 ## Sensor vars
 sensorWidth = 1 # width of arcs and lines used for sensors
+# line vars
 lineLengths = [200] # length of lines in list format - list not needed for code as currently written but here for flexibility. To add more line sensors, you'd adjust this, lineCenterCalc, and linePointsCalc
 def lineCenterCalc(carRect, iVal: int): # this is a function instead of a list due to the presence of values like carRect.top
     lineCenters = [(carRect.centerx, (carRect.top-lineLengths[iVal]))]
@@ -47,6 +98,7 @@ def lineCenterCalc(carRect, iVal: int): # this is a function instead of a list d
 def linePointsCalc(carRect, iVal: int): # function instead of list due to presence of values like carRect
     linePoints = [((carRect.centerx, carRect.top), (carRect.centerx, (carRect.top)))]
     return linePoints[iVal]
+# arc vars - note: sensor generally refers to each group of arcs, arc refers to an individual arc
 arcNumber = 6 # number of seperate arcs per sensor, distributed over arcDistanceMin to arcDistanceMax
 arcDistanceMin = 10*2 # due to pygame quirks, this is half the distance the first arc will be put at from the car (hence the *2)
 arcDistanceMax = 90*2 # half the distance the last arc will be put at
@@ -54,15 +106,18 @@ arcIncrement = (arcDistanceMax-arcDistanceMin)/(arcNumber-1)
 #to add another arc sensor you'd adjust arcCenterCalc and arcAngles
 #use Pi for ease of change at least while still editing
 arcAngles = [[math.pi*(1/8), math.pi*(3/8)], [math.pi*(5/8), math.pi*(7/8)], [math.pi*(7/8), math.pi*(9/8)], [math.pi*(15/8), math.pi*(17/8)]] # angles I want each individual sensor to detect from to (note: in radians)
-def arcCenterCalc(carRect, iVal): # function due to dependency on carRect
-    arcCenters = [((carRect.right), (carRect.top)),
-                   ((carRect.left), (carRect.top)),
-                  ((carRect.left), (carRect.bottom)),
-                    ((carRect.right), (carRect.bottom))]
-    return arcCenters[iVal]
+def arcCenterCalc(polyPoints, cTop, cLeft, iVal): # function due to dependency on carRect
+    arcCenters = [(polyPoints[1]),
+                   (polyPoints[0]),
+                  (polyPoints[3]),
+                    (polyPoints[2])]
+    thisx, thisy = arcCenters[iVal]
+    thisx += cLeft
+    thisy += cTop
+    return thisx, thisy
 
 ## Shared vars
-totalSpeed = 0
+totalSpeed = 0 # note: this var is positive for forward motion and negative for backwards motion
 
 # Initialize pygame
 pygame.init()
@@ -74,40 +129,38 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT)) #setting up scre
 
 # this class is for the Car the AI (or user) will be driving
 class Car(pygame.sprite.Sprite):
-    def __init__(self, width, height, speed):
+    def __init__(self, width, height, mSpeed, accel, turnSpeed):
         super(Car, self).__init__() # initializing the super useful Sprite class
         self.width = width
         self.height = height
-        self.speed = speed
-        self.surf = pygame.Surface((width, height))
-        self.surf.fill(W)
+        self.surfDims = (width**2 + height**2)**0.5
+        self.mSpeed = mSpeed
+        self.accel = accel
+        self.surf = pygame.Surface((self.surfDims, self.surfDims))
+        self.surf.set_colorkey(BL) # here so that when I rotate everything it makes the extra padding transparent
+        self.surf.fill(BL)
+        xDiff = width/2 - self.surfDims/2
+        yDiff = height/2 - self.surfDims/2
+        self.polyPoints = [(-xDiff, -yDiff), (width - xDiff, -yDiff), (width - xDiff, height - yDiff), (-xDiff, height - yDiff)]
+        self.polygon = pygame.draw.polygon(self.surf, W, self.polyPoints)
         self.rect = self.surf.get_rect()
         self.rect.center = ((SCREEN_WIDTH)/2, (SCREEN_HEIGHT)/2)
+        self.angle = 0 # setting current angle as 0 - in this case I've set 0 as pointing towards the top of the screen
+        self.turnSpeed = turnSpeed
+        self.totalSpeed = 0
     def update(self, kPressed, tSpeed):
         ### To Do Next: ADJUST THIS AND ADD IN OTHER CARS - everything should be in relation to total speed
-        #moving things
-        if kPressed[K_UP] and (self.rect.top-self.speed)>0:
-            self.rect.move_ip(0, -self.speed)
-        if kPressed[K_DOWN] and (self.rect.bottom+self.speed)<SCREEN_HEIGHT:
-            self.rect.move_ip(0,self.speed)
-        if kPressed[K_LEFT] and (self.rect.left-self.speed)>0:
-            self.rect.move_ip(-self.speed,0)
-        if kPressed[K_RIGHT] and (self.rect.right+self.speed)<SCREEN_WIDTH:
-            self.rect.move_ip(self.speed,0)
-
-        ###technically redundant but why not
-        #checking for out of bounds to left
-        if self.rect.left < 0:
-            self.rect.left = 0
-        #checking for out of bounds to right
-        if self.rect.right > SCREEN_WIDTH:
-            self.rect.right = SCREEN_WIDTH
-        #checking for out of bounds above
-        if self.rect.top < 0:
-            self.rect.top = 0
-        #checking for out of bound below
-        if self.rect.bottom >= SCREEN_HEIGHT:
-            self.rect.bottom = SCREEN_HEIGHT
+        # cars y value won't change, but will move side to side and rotate
+        # going 'faster' or 'slower' will change total speed (speed screen moves by), which will change perception of motion
+        # moving things
+        if kPressed[K_UP] and (tSpeed + self.accel) <= self.mSpeed:
+            self.totalSpeed += self.accel
+        if kPressed[K_DOWN] and (tSpeed - self.accel) >= -self.mSpeed:
+            self.totalSpeed -= self.accel
+        if kPressed[K_LEFT]:
+            rotate(self, True)
+        if kPressed[K_RIGHT]:
+            rotate(self, False)
 
         return tSpeed
 
@@ -138,37 +191,46 @@ class ArcSensor(pygame.sprite.Sprite):
         self.rect = self.surf.get_rect()
         self.arc = pygame.draw.arc(self.surf, G, self.rect, startAngle, stopAngle, aWidth)
         self.mask = pygame.mask.from_surface(self.surf) # makes a mask (used for collision purposes) out of the arc I just drew
-    def update(self, cRect):
-        self.rect.center = arcCenterCalc(cRect, self.iValue) # updates position to stay with car
-        
+    def update(self, pPoints, cLeft, cTop):
+        self.rect.center = arcCenterCalc(pPoints, cTop, cLeft, self.iValue) # updates position to stay with car
+
+
+### Instantiating sprites and sprite groups
+
+## sprite groups
 allSprites = pygame.sprite.Group() #mostly for usefulness when using screen.blit()
 sensors = pygame.sprite.Group() #mostly for how easy it makes calling the update function
 
-car = Car(carWidth, carHeight, maxSpeed)
+## the car
+car = Car(carWidth, carHeight, maxSpeed, acceleration, carTurnSpeed)
 allSprites.add(car)
 
+## line sensor(s)
+lines = []
 for i in range(len(lineLengths)):
     thisLineCenter = lineCenterCalc(car.rect, i)
-    lineFront = LineSensor((car.rect.centerx, car.rect.top), (car.rect.centerx, (car.rect.top-lineLengths[i])), sensorWidth)
+    lines.append(LineSensor((car.rect.centerx, car.rect.top), (car.rect.centerx, (car.rect.top-lineLengths[i])), sensorWidth))
 
-##creating every sensor arc in one for loop, as well as defining their places relative to the car
-arcs = list()#this list will hold every arc sprite
-#this for loop goes through each sensor position, one top right, one top left, one back right, one back left
-for i in range(len(arcAngles)):
-    #arcs is a list of list, so I'm defining each index of arc as an empty list
+
+## arc sensors
+# using nested for loops to create each individual arc for each sensor
+arcs = list() # this list will hold every group of arc sensors, each item in the list will be another list with each individual arc for each individual sensor
+
+for i in range(len(arcAngles)): # this for loop goes through each sensor position, one top right, one top left, one back right, one back left
+    # arcs is a list of list, so I'm defining each index of arc as an empty list
     arcs.append([])
-    #this for loop creates every individual arc within a sensor
+    # this for loop creates every individual arc within a sensor
     for j in range(arcNumber):
         thisArcSize = arcDistanceMin+arcIncrement*j
         arcs[i].append(ArcSensor(thisArcSize, thisArcSize, arcAngles[i][0], arcAngles[i][1], sensorWidth))
         #figuring out where I need to move the arcs to relative to the car
-        thisArcCenter = arcCenterCalc(car.rect, i)
+        thisArcCenter = arcCenterCalc(car.polyPoints, car.rect.top, car.rect.left, i)
         #moving arc to position just found
         arcs[i][j].rect.center = thisArcCenter
-        arcs[i][j].iValue = i
-        sensors.add(arcs[i][j])
+        arcs[i][j].iValue = i # used in the update function
+        sensors.add(arcs[i][j]) # adding arc to group
 
-
+# adds each individual arc and line to sensors
 for sprite in sensors:
     allSprites.add(sprite)
         
@@ -187,7 +249,7 @@ while running:
     
     keyPressed = pygame.key.get_pressed() #figuring out what key was pressed
     car.update(keyPressed, totalSpeed) #using the pressed key to update the cars position (and, accordingly, the total speed variable)
-    sensors.update(cRect = car.rect) #adjusting the sensors so that they stay with the car
+    sensors.update(pPoints = car.polyPoints, cLeft = car.rect.left, cTop = car.rect.top) #adjusting the sensors so that they stay with the car
 
     for sprite in allSprites:
         screen.blit(sprite.surf, sprite)

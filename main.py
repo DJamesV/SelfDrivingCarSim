@@ -145,6 +145,7 @@ class Car(pygame.sprite.Sprite):
         yDiff = height/2 - self.surfDims/2
         self.polyPoints = [(-xDiff, -yDiff), (width - xDiff, -yDiff), (width - xDiff, height - yDiff), (-xDiff, height - yDiff)]
         self.polygon = pygame.draw.polygon(self.surf, W, self.polyPoints)
+        self.mask = pygame.mask.from_surface(self.surf)
         self.rect = self.surf.get_rect()
         self.rect.center = ((SCREEN_WIDTH)/2, (SCREEN_HEIGHT)/2)
         self.angle = 0 # setting current angle as 0 - in this case I've set 0 as pointing towards the top of the screen
@@ -161,11 +162,14 @@ class Car(pygame.sprite.Sprite):
             self.totalSpeed -= self.accel
         if kPressed[K_LEFT]:
             rotate(self, True)
+            self.angle += self.turnSpeed
             if self.angle > 2*math.pi: self.angle -= 2*math.pi
         if kPressed[K_RIGHT]:
             rotate(self, False)
             self.angle -= self.turnSpeed
             if self.angle < 0: self.angle += 2*math.pi
+        
+        
 
         return tSpeed
 

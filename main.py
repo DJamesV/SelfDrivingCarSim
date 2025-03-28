@@ -161,7 +161,6 @@ class Car(pygame.sprite.Sprite):
             self.totalSpeed -= self.accel
         if kPressed[K_LEFT]:
             rotate(self, True)
-            self.angle = math.tan(self.polyPoints[0])
             if self.angle > 2*math.pi: self.angle -= 2*math.pi
         if kPressed[K_RIGHT]:
             rotate(self, False)

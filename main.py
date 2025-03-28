@@ -40,6 +40,8 @@ maxSpeed = 150/fRate #this is set relative to frame rate so that the speed stays
 acceleration = 30/fRate #this is set  relative to frame rate so that it will stay the same as the frame rate changes
 friction = 5/fRate #set relative to frame rate so it stays constant
 carTurnSpeed = 10*(1/8)*math.pi/fRate
+# Considering the rotate function just uses specifically things for Car, at this point it should be solely in the Car function, or have variables changed to be more universal,
+# but I currently have it here for editing purposes, etc. Will probably edit it to be one or the other at some point
 def rotate(object, turningLeft: bool):
     minMax = [object.surfDims, object.surfDims, 0,0]
     minMaxChanged = [False, False, False, False]
@@ -159,8 +161,12 @@ class Car(pygame.sprite.Sprite):
             self.totalSpeed -= self.accel
         if kPressed[K_LEFT]:
             rotate(self, True)
+            self.angle = math.tan(self.polyPoints[0])
+            if self.angle > 2*math.pi: self.angle -= 2*math.pi
         if kPressed[K_RIGHT]:
             rotate(self, False)
+            self.angle -= self.turnSpeed
+            if self.angle < 0: self.angle += 2*math.pi
 
         return tSpeed
 
@@ -189,10 +195,15 @@ class ArcSensor(pygame.sprite.Sprite):
         self.surf.fill(BL)
         self.surf.set_colorkey(BL) # says I want everything colored black to actually be transparent
         self.rect = self.surf.get_rect()
+        self.startAngle = startAngle
+        self.stopAngle = stopAngle
         self.arc = pygame.draw.arc(self.surf, G, self.rect, startAngle, stopAngle, aWidth)
+        self.aWidth = aWidth
         self.mask = pygame.mask.from_surface(self.surf) # makes a mask (used for collision purposes) out of the arc I just drew
-    def update(self, pPoints, cLeft, cTop):
+    def update(self, pPoints, cLeft, cTop, cAngle):
         self.rect.center = arcCenterCalc(pPoints, cTop, cLeft, self.iValue) # updates position to stay with car
+        self.surf.fill(BL)
+        self.arc = pygame.draw.arc(self.surf, G, (0,0, self.width, self.height), self.startAngle - cAngle, self.stopAngle - cAngle, self.aWidth)
 
 
 ### Instantiating sprites and sprite groups
@@ -249,7 +260,7 @@ while running:
     
     keyPressed = pygame.key.get_pressed() #figuring out what key was pressed
     car.update(keyPressed, totalSpeed) #using the pressed key to update the cars position (and, accordingly, the total speed variable)
-    sensors.update(pPoints = car.polyPoints, cLeft = car.rect.left, cTop = car.rect.top) #adjusting the sensors so that they stay with the car
+    sensors.update(pPoints = car.polyPoints, cLeft = car.rect.left, cTop = car.rect.top, cAngle = car.angle) #adjusting the sensors so that they stay with the car
 
     for sprite in allSprites:
         screen.blit(sprite.surf, sprite)

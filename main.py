@@ -177,7 +177,7 @@ class Car(pygame.sprite.Sprite):
             self.angle -= self.turnSpeed
         
         self.tick += 1
-        if self.tick >= 30:
+        if self.tick >= fRate: #currently gets called once every second
             self.checkAngle()
             self.tick = 0
         

@@ -151,6 +151,15 @@ class Car(pygame.sprite.Sprite):
         self.angle = 0 # setting current angle as 0 - in this case I've set 0 as pointing towards the top of the screen
         self.turnSpeed = turnSpeed
         self.totalSpeed = 0
+        if self.polyPoints[0][0] != 0:
+            self.theta0 = math.atan(((self.polyPoints[0][1] - self.surfDims/2)/(self.polyPoints[0][0]- self.surfDims/2)))
+            if (self.polyPoints[0][0] - self.surfDims/2) < 0:
+                self.theta0 += math.pi
+        else:
+            self.theta0 = 0.5*math.pi
+            if (self.polyPoints[0][1] - self.surfDims/2) < 0:
+                self.theta0 += math.pi
+        self.tick = 0
     def update(self, kPressed, tSpeed):
         ### To Do Next: ADJUST THIS AND ADD IN OTHER CARS - everything should be in relation to total speed
         # cars y value won't change, but will move side to side and rotate
@@ -163,15 +172,30 @@ class Car(pygame.sprite.Sprite):
         if kPressed[K_LEFT]:
             rotate(self, True)
             self.angle += self.turnSpeed
-            if self.angle > 2*math.pi: self.angle -= 2*math.pi
         if kPressed[K_RIGHT]:
             rotate(self, False)
             self.angle -= self.turnSpeed
-            if self.angle < 0: self.angle += 2*math.pi
         
+        self.tick += 1
+        if self.tick >= 30:
+            self.checkAngle()
+            self.tick = 0
         
+        self.mask.clear()
+        self.mask.draw(pygame.mask.from_surface(self.surf), (0, 0)) # you can test this by setting 'self.maskSurf = self.mask.to_surface(setcolor = (255,0, 0, 255))' then blitting car.maskSurf onto the screen
 
         return tSpeed
+    def checkAngle(self):
+        fx, fy = self.polyPoints[0]
+        if (fx - self.surfDims/2) != 0:
+            tempTheta = math.atan((fy-self.surfDims/2)/(fx-self.surfDims/2))
+            if (fx - self.surfDims/2) < 0:
+                tempTheta += math.pi
+        elif (fy - self.surfDims) > 0:
+            tempTheta = 0.5*math.pi
+        else:
+            tempTheta = 1.5*math.pi
+        self.angle = tempTheta - self.theta0
 
 # this class is for sensors in the form of lines as opposed to arcs
 class LineSensor(pygame.sprite.Sprite):
@@ -207,6 +231,8 @@ class ArcSensor(pygame.sprite.Sprite):
         self.rect.center = arcCenterCalc(pPoints, cTop, cLeft, self.iValue) # updates position to stay with car
         self.surf.fill(BL)
         self.arc = pygame.draw.arc(self.surf, G, (0,0, self.width, self.height), self.startAngle - cAngle, self.stopAngle - cAngle, self.aWidth)
+        self.mask.clear()
+        self.mask.draw(pygame.mask.from_surface(self.surf), (0,0))
 
 
 ### Instantiating sprites and sprite groups

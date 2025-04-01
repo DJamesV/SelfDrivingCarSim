@@ -36,13 +36,13 @@ clock=pygame.time.Clock()
 ## Car vars
 carWidth = 50
 carHeight = carWidth*(7/3) #would recommend keeping this ratio - approximately the ratio with actual cars
-maxSpeed = 150/fRate #this is set relative to frame rate so that the speed stays consant even if the frame rate changes
+maxSpeed = 200/fRate #this is set relative to frame rate so that the speed stays consant even if the frame rate changes
 acceleration = 30/fRate #this is set  relative to frame rate so that it will stay the same as the frame rate changes
-friction = 5/fRate #set relative to frame rate so it stays constant
-carTurnSpeed = 10*(1/8)*math.pi/fRate
+friction = 1/fRate #set relative to frame rate so it stays constant
+carTurnSpeed = 1.5*(1/8)*math.pi/fRate
 # Considering the rotate function just uses specifically things for Car, at this point it should be solely in the Car function, or have variables changed to be more universal,
 # but I currently have it here for editing purposes, etc. Will probably edit it to be one or the other at some point
-def rotate(object, turningLeft: bool):
+def rotate(object, turningRight: bool):
     minMax = [object.surfDims, object.surfDims, 0,0]
     minMaxChanged = [False, False, False, False]
     minMaxDefault = [0,0, object.surfDims,object.surfDims]
@@ -57,7 +57,7 @@ def rotate(object, turningLeft: bool):
         else:
             theta = 1.5*math.pi
         length = (point[0]**2 + point[1]**2)**0.5
-        if turningLeft:
+        if turningRight:
             px = length*math.cos(theta+object.turnSpeed)
             py = length*math.sin(theta+object.turnSpeed)
         else:
@@ -118,6 +118,11 @@ def arcCenterCalc(polyPoints, cTop, cLeft, iVal): # function due to dependency o
     thisy += cTop
     return thisx, thisy
 
+## Lane vars
+laneLineWidth = 10
+laneLineHeight = 50
+lanexPos = [200, 400]
+
 ## Shared vars
 totalSpeed = 0 # note: this var is positive for forward motion and negative for backwards motion
 
@@ -131,13 +136,14 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT)) #setting up scre
 
 # this class is for the Car the AI (or user) will be driving
 class Car(pygame.sprite.Sprite):
-    def __init__(self, width, height, mSpeed, accel, turnSpeed):
+    def __init__(self, width, height, mSpeed, accel, turnSpeed, friction):
         super(Car, self).__init__() # initializing the super useful Sprite class
         self.width = width
         self.height = height
         self.surfDims = (width**2 + height**2)**0.5
         self.mSpeed = mSpeed
         self.accel = accel
+        self.friction = friction
         self.surf = pygame.Surface((self.surfDims, self.surfDims))
         self.surf.set_colorkey(BL) # here so that when I rotate everything it makes the extra padding transparent
         self.surf.fill(BL)
@@ -160,22 +166,48 @@ class Car(pygame.sprite.Sprite):
             if (self.polyPoints[0][1] - self.surfDims/2) < 0:
                 self.theta0 += math.pi
         self.tick = 0
+        self.leftoverSideMovement = 0
+        self.leftoverUpMovement = 0
     def update(self, kPressed, tSpeed):
         ### To Do Next: ADJUST THIS AND ADD IN OTHER CARS - everything should be in relation to total speed
         # cars y value won't change, but will move side to side and rotate
         # going 'faster' or 'slower' will change total speed (speed screen moves by), which will change perception of motion
         # moving things
-        if kPressed[K_UP] and (tSpeed + self.accel) <= self.mSpeed:
+        if kPressed[K_UP] and (self.totalSpeed + self.accel) <= self.mSpeed:
             self.totalSpeed += self.accel
-        if kPressed[K_DOWN] and (tSpeed - self.accel) >= -self.mSpeed:
+        if kPressed[K_DOWN] and (self.totalSpeed - self.accel) >= -self.mSpeed:
             self.totalSpeed -= self.accel
-        if kPressed[K_LEFT]:
+        if kPressed[K_RIGHT]:
             rotate(self, True)
             self.angle += self.turnSpeed
-        if kPressed[K_RIGHT]:
+        if kPressed[K_LEFT]:
             rotate(self, False)
             self.angle -= self.turnSpeed
         
+        if self.totalSpeed > 0:
+            if self.totalSpeed - self.friction >= 0:
+                self.totalSpeed -= self.friction
+            else:
+                self.totalSpeed = 0
+        elif self.totalSpeed < 0:
+            if self.totalSpeed + self.friction <= 0:
+                self.totalSpeed += self.friction
+            else:
+                self.totalSpeed = 0
+
+        realUpMovement = self.totalSpeed * math.cos(self.angle) + self.leftoverUpMovement
+        self.leftoverUpMovement = 0
+        realSideMovement = self.totalSpeed * math.sin(self.angle) + self.leftoverSideMovement
+        self.leftoverSideMovement = 0
+        roundedUpMovement = realUpMovement.__floor__()
+        self.leftoverUpMovement += realUpMovement - roundedUpMovement
+        roundedSideMovement = realSideMovement.__floor__()
+        self.leftoverSideMovement += realSideMovement - roundedSideMovement
+
+        tSpeed = roundedUpMovement
+        
+        self.rect.move_ip(roundedSideMovement, 0)
+
         self.tick += 1
         if self.tick >= fRate: #currently gets called once every second
             self.checkAngle()
@@ -213,11 +245,11 @@ class LineSensor(pygame.sprite.Sprite):
 
 # this class if for sensors in the form of lines as opposed to arcs
 class ArcSensor(pygame.sprite.Sprite):
-    def __init__(self, width, height, startAngle, stopAngle, aWidth):
+    def __init__(self, width, height, startAngle, stopAngle, aWidth, iValue):
         super(ArcSensor, self).__init__()
         self.width = width
         self.height = height
-        self.iValue = 0 #will be changed by for loop later
+        self.iValue = iValue
         self.surf = pygame.Surface((width, height))
         self.surf.fill(BL)
         self.surf.set_colorkey(BL) # says I want everything colored black to actually be transparent
@@ -227,6 +259,7 @@ class ArcSensor(pygame.sprite.Sprite):
         self.arc = pygame.draw.arc(self.surf, G, self.rect, startAngle, stopAngle, aWidth)
         self.aWidth = aWidth
         self.mask = pygame.mask.from_surface(self.surf) # makes a mask (used for collision purposes) out of the arc I just drew
+        self.rect.center = arcCenterCalc(car.polyPoints, car.rect.top, car.rect.left, i)
     def update(self, pPoints, cLeft, cTop, cAngle):
         self.rect.center = arcCenterCalc(pPoints, cTop, cLeft, self.iValue) # updates position to stay with car
         self.surf.fill(BL)
@@ -234,15 +267,33 @@ class ArcSensor(pygame.sprite.Sprite):
         self.mask.clear()
         self.mask.draw(pygame.mask.from_surface(self.surf), (0,0))
 
+# this class is for the street lines
+class LaneLine(pygame.sprite.Sprite):
+    def __init__(self, width, height, startingx, startingy):
+        super(LaneLine, self).__init__()
+        self.width = width
+        self.height = height
+        self.surf = pygame.Surface((width, height))
+        self.surf.fill(W)
+        self.rect = self.surf.get_rect()
+        self.rect.x, self.rect.y = startingx, startingy
+    def update(self, tSpeed):
+        self.rect.move_ip(0, tSpeed)
+        if self.rect.top > SCREEN_HEIGHT + self.height:
+            self.rect.bottom = self.rect.top - (SCREEN_HEIGHT + self.height)
+        elif self.rect.bottom < 0:
+            self.rect.top = SCREEN_HEIGHT + self.height + self.rect.bottom
+
 
 ### Instantiating sprites and sprite groups
 
 ## sprite groups
 allSprites = pygame.sprite.Group() #mostly for usefulness when using screen.blit()
 sensors = pygame.sprite.Group() #mostly for how easy it makes calling the update function
+laneLinesGroup = pygame.sprite.Group()
 
 ## the car
-car = Car(carWidth, carHeight, maxSpeed, acceleration, carTurnSpeed)
+car = Car(carWidth, carHeight, maxSpeed, acceleration, carTurnSpeed, friction)
 allSprites.add(car)
 
 ## line sensor(s)
@@ -262,18 +313,22 @@ for i in range(len(arcAngles)): # this for loop goes through each sensor positio
     # this for loop creates every individual arc within a sensor
     for j in range(arcNumber):
         thisArcSize = arcDistanceMin+arcIncrement*j
-        arcs[i].append(ArcSensor(thisArcSize, thisArcSize, arcAngles[i][0], arcAngles[i][1], sensorWidth))
-        #figuring out where I need to move the arcs to relative to the car
-        thisArcCenter = arcCenterCalc(car.polyPoints, car.rect.top, car.rect.left, i)
-        #moving arc to position just found
-        arcs[i][j].rect.center = thisArcCenter
-        arcs[i][j].iValue = i # used in the update function
+        arcs[i].append(ArcSensor(thisArcSize, thisArcSize, arcAngles[i][0], arcAngles[i][1], sensorWidth, i))
         sensors.add(arcs[i][j]) # adding arc to group
 
 # adds each individual arc and line to sensors
 for sprite in sensors:
     allSprites.add(sprite)
-        
+
+laneLines = list()
+for i in range(len(lanexPos)):
+    laneLines.append(list())
+    for j in range((math.ceil(SCREEN_HEIGHT/(laneLineHeight*2)))+1):
+        thisLaneStartingy = laneLineHeight*2*j
+        laneLines[i].append(LaneLine(laneLineWidth, laneLineHeight, lanexPos[i], thisLaneStartingy))
+        laneLinesGroup.add(laneLines[i][j])
+        allSprites.add(laneLines[i][j])
+
 running = True
 
 while running:
@@ -288,8 +343,9 @@ while running:
     screen.fill(screenColor)
     
     keyPressed = pygame.key.get_pressed() #figuring out what key was pressed
-    car.update(keyPressed, totalSpeed) #using the pressed key to update the cars position (and, accordingly, the total speed variable)
+    totalSpeed = car.update(keyPressed, totalSpeed) #using the pressed key to update the cars position (and, accordingly, the total speed variable)
     sensors.update(pPoints = car.polyPoints, cLeft = car.rect.left, cTop = car.rect.top, cAngle = car.angle) #adjusting the sensors so that they stay with the car
+    laneLinesGroup.update(totalSpeed)
 
     for sprite in allSprites:
         screen.blit(sprite.surf, sprite)

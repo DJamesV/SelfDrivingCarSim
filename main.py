@@ -326,12 +326,10 @@ for i in range(len(lineLengths)):
 ## arc sensors
 # using nested for loops to create each individual arc for each sensor
 arcs = list() # this list will hold every group of arc sensors, each item in the list will be another list with each individual arc for each individual sensor
-arcsCollided = list()
 
 for i in range(len(arcAngles)): # this for loop goes through each sensor position, one top right, one top left, one back right, one back left
     # arcs is a list of list, so I'm defining each index of arc as an empty list
     arcs.append([])
-    arcsCollided.append([])
     # this for loop creates every individual arc within a sensor
     for j in range(arcNumber):
         thisArcSize = arcDistanceMin+arcIncrement*j

@@ -157,6 +157,7 @@ class Car(pygame.sprite.Sprite):
         self.tick = 0
         self.leftoverSideMovement = 0
         self.leftoverUpMovement = 0
+        self.reverseCoefficient = 0.4
 
         if self.polyPoints[0][0] != 0:
             self.theta0 = math.atan(((self.polyPoints[0][1] - self.surfDims/2)/(self.polyPoints[0][0]- self.surfDims/2)))
@@ -178,10 +179,10 @@ class Car(pygame.sprite.Sprite):
             else:
                 self.totalSpeed = self.mSpeed
         if kPressed[K_DOWN]:
-            if (self.totalSpeed - self.accel) >= - 0.3 * self.mSpeed:
+            if (self.totalSpeed - self.accel) >= - self.reverseCoefficient * self.mSpeed:
                 self.totalSpeed -= self.accel
             else:
-                self.totalSpeed = -0.3 * self.mSpeed
+                self.totalSpeed = - self.reverseCoefficient * self.mSpeed
         if kPressed[K_RIGHT]:
             rotate(self, True)
             self.angle += self.turnSpeed
@@ -195,8 +196,8 @@ class Car(pygame.sprite.Sprite):
             else:
                 self.totalSpeed = 0
         elif self.totalSpeed < 0:
-            if self.totalSpeed + 0.3 * self.friction <= 0:
-                self.totalSpeed += 0.3*self.friction
+            if self.totalSpeed + self.friction <= 0:
+                self.totalSpeed += self.friction
             else:
                 self.totalSpeed = 0
 
@@ -264,6 +265,7 @@ class ArcSensor(pygame.sprite.Sprite):
         self.aWidth = aWidth
         self.mask = pygame.mask.from_surface(self.surf) # makes a mask (used for collision purposes) out of the arc I just drew
         self.rect.center = arcCenterCalc(car.polyPoints, car.rect.top, car.rect.left, i)
+        self.collided = False
     def update(self, pPoints, cLeft, cTop, cAngle):
         self.rect.center = arcCenterCalc(pPoints, cTop, cLeft, self.iValue) # updates position to stay with car
         self.surf.fill(BL)
@@ -303,8 +305,10 @@ class Walls(pygame.sprite.Sprite):
 ### Instantiating sprites and sprite groups
 
 ## sprite groups
-allSprites = pygame.sprite.Group() #mostly for usefulness when using screen.blit()
-sensors = pygame.sprite.Group() #mostly for how easy it makes calling the update function
+allSprites = pygame.sprite.Group() # mostly for usefulness when using screen.blit()
+obstacles = pygame.sprite.Group() # for collision detection purposes
+sensors = pygame.sprite.Group() # mostly for how easy it makes calling the update function
+hiddenSensors = pygame.sprite.Group() # for when sensors see something and are no longer being blitted
 laneLinesGroup = pygame.sprite.Group()
 walls = pygame.sprite.Group()
 
@@ -322,10 +326,12 @@ for i in range(len(lineLengths)):
 ## arc sensors
 # using nested for loops to create each individual arc for each sensor
 arcs = list() # this list will hold every group of arc sensors, each item in the list will be another list with each individual arc for each individual sensor
+arcsCollided = list()
 
 for i in range(len(arcAngles)): # this for loop goes through each sensor position, one top right, one top left, one back right, one back left
     # arcs is a list of list, so I'm defining each index of arc as an empty list
     arcs.append([])
+    arcsCollided.append([])
     # this for loop creates every individual arc within a sensor
     for j in range(arcNumber):
         thisArcSize = arcDistanceMin+arcIncrement*j
@@ -353,6 +359,7 @@ leftWall = Walls(wallWidth, False, wallColor)
 walls.add(rightWall)
 walls.add(leftWall)
 for sprite in walls:
+    obstacles.add(sprite)
     allSprites.add(sprite)
 
 running = True
@@ -377,6 +384,20 @@ while running:
     if pygame.sprite.spritecollideany(car, walls, pygame.sprite.collide_mask):
         car.kill()
         running = False
+
+    for sprite in sensors:
+        if sprite not in hiddenSensors:
+            if pygame.sprite.spritecollideany(sprite, obstacles, pygame.sprite.collide_mask):
+                allSprites.remove(sprite)
+                hiddenSensors.add(sprite)
+                sprite.collided = True
+
+    for sprite in hiddenSensors:
+        if not pygame.sprite.spritecollideany(sprite, obstacles, pygame.sprite.collide_mask):
+            allSprites.add(sprite)
+            hiddenSensors.remove(sprite)
+            sprite.collided = False
+
 
     for sprite in allSprites:
         screen.blit(sprite.surf, sprite)

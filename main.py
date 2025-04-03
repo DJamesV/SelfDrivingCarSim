@@ -24,7 +24,7 @@ G = (0,255,0) #green
 B = (0,0,255) #blue
 Y = (255,255,0) #yellow
 BL = (0,0,0) #black - note B for blue (as in rgb) and BL for BLack
-screenLightness = 75 # how light a gray the backgrond is - higher means lighter lower means darker, range 0-255
+screenLightness = 75 # how light a gray the background is - higher means lighter lower means darker, range 0-255
 screenColor = (screenLightness, screenLightness, screenLightness) # the color of the screen as a tuple (r,g,b)
 
 ##screen vars
@@ -36,18 +36,21 @@ clock=pygame.time.Clock()
 ## Car vars
 carWidth = 50
 carHeight = carWidth*(7/3) #would recommend keeping this ratio - approximately the ratio with actual cars
-maxSpeed = 200/fRate #this is set relative to frame rate so that the speed stays consant even if the frame rate changes
+maxSpeed = 200/fRate #this is set relative to frame rate so that the speed stays constant even if the frame rate changes
 acceleration = 30/fRate #this is set  relative to frame rate so that it will stay the same as the frame rate changes
 friction = 1/fRate #set relative to frame rate so it stays constant
 carTurnSpeed = 1.5*(1/8)*math.pi/fRate
 # Considering the rotate function just uses specifically things for Car, at this point it should be solely in the Car function, or have variables changed to be more universal,
 # but I currently have it here for editing purposes, etc. Will probably edit it to be one or the other at some point
-def rotate(object, turningRight: bool):
-    minMax = [object.surfDims, object.surfDims, 0,0]
-    minMaxChanged = [False, False, False, False]
-    minMaxDefault = [0,0, object.surfDims,object.surfDims]
-    newPoints = []
+def rotate(object, turningRight : bool):
+    pPoints = list()
     for point in object.polyPoints:
+        px, py = point
+        px -= object.surfDims/2
+        py -= object.surfDims/2
+        pPoints.append((px, py))
+    newPoints = list()
+    for point in pPoints:
         if point[0] != 0:
             theta = math.atan((point[1]/point[0]))
             if point[0] < 0:
@@ -57,38 +60,26 @@ def rotate(object, turningRight: bool):
         else:
             theta = 1.5*math.pi
         length = (point[0]**2 + point[1]**2)**0.5
+
         if turningRight:
             px = length*math.cos(theta+object.turnSpeed)
             py = length*math.sin(theta+object.turnSpeed)
         else:
             px = length*math.cos(theta-object.turnSpeed)
             py = length*math.sin(theta-object.turnSpeed)
-        newPoints.append((px,py))
-        if px < minMax[0]:
-            minMax[0] = px
-            minMaxChanged[0] = True
-        if px > minMax[2]:
-            minMax[2] = px
-            minMaxChanged[2] = True
-        if py < minMax[1]:
-            minMax[1] = py
-            minMaxChanged[1] = True
-        if py > minMax[3]:
-            minMax[3] = py
-            minMaxChanged[3] = True
-    for i in range(len(minMax)):
-        if minMaxChanged[i] == False:
-            minMax[i] = minMaxDefault[i]
-    xDiff = (((minMax[2]-minMax[0])/2)+minMax[0])-(object.surfDims/2)
-    yDiff = (((minMax[3]-minMax[1])/2)+minMax[1])-(object.surfDims/2)
-    for i in range(len(newPoints)):
-        px, py = newPoints[i]
-        px -= xDiff
-        py -= yDiff
-        newPoints[i] = px, py
+
+        newPoints.append((px, py))
+
+    for point in newPoints:
+        px, py = point
+        px += object.surfDims/2
+        py += object.surfDims/2
+        newPoints[newPoints.index(point)] = (px, py)
+
     object.polyPoints = newPoints
     object.surf.fill(BL)
-    object.polygon = pygame.draw.polygon(object.surf, W, object.polyPoints)
+    object.polygon = pygame.draw.polygon(object.surf, W, newPoints)
+
 
 ## Sensor vars
 sensorWidth = 1 # width of arcs and lines used for sensors
@@ -123,6 +114,11 @@ laneLineWidth = 10
 laneLineHeight = 50
 lanexPos = [200, 400]
 
+## Wall vars
+wallWidth = 30
+wallLightness = 70
+wallColor = (wallLightness, wallLightness, wallLightness)
+
 ## Shared vars
 totalSpeed = 0 # note: this var is positive for forward motion and negative for backwards motion
 
@@ -156,7 +152,12 @@ class Car(pygame.sprite.Sprite):
         self.rect.center = ((SCREEN_WIDTH)/2, (SCREEN_HEIGHT)/2)
         self.angle = 0 # setting current angle as 0 - in this case I've set 0 as pointing towards the top of the screen
         self.turnSpeed = turnSpeed
+        self.maxTurnSpeed = turnSpeed
         self.totalSpeed = 0
+        self.tick = 0
+        self.leftoverSideMovement = 0
+        self.leftoverUpMovement = 0
+
         if self.polyPoints[0][0] != 0:
             self.theta0 = math.atan(((self.polyPoints[0][1] - self.surfDims/2)/(self.polyPoints[0][0]- self.surfDims/2)))
             if (self.polyPoints[0][0] - self.surfDims/2) < 0:
@@ -165,18 +166,22 @@ class Car(pygame.sprite.Sprite):
             self.theta0 = 0.5*math.pi
             if (self.polyPoints[0][1] - self.surfDims/2) < 0:
                 self.theta0 += math.pi
-        self.tick = 0
-        self.leftoverSideMovement = 0
-        self.leftoverUpMovement = 0
+
     def update(self, kPressed, tSpeed):
-        ### To Do Next: ADJUST THIS AND ADD IN OTHER CARS - everything should be in relation to total speed
         # cars y value won't change, but will move side to side and rotate
         # going 'faster' or 'slower' will change total speed (speed screen moves by), which will change perception of motion
         # moving things
-        if kPressed[K_UP] and (self.totalSpeed + self.accel) <= self.mSpeed:
-            self.totalSpeed += self.accel
-        if kPressed[K_DOWN] and (self.totalSpeed - self.accel) >= -self.mSpeed:
-            self.totalSpeed -= self.accel
+        self.turnSpeed = self.maxTurnSpeed * (self.totalSpeed/self.mSpeed)
+        if kPressed[K_UP]:
+            if (self.totalSpeed + self.accel) <= self.mSpeed:
+                self.totalSpeed += self.accel
+            else:
+                self.totalSpeed = self.mSpeed
+        if kPressed[K_DOWN]:
+            if (self.totalSpeed - self.accel) >= - 0.3 * self.mSpeed:
+                self.totalSpeed -= self.accel
+            else:
+                self.totalSpeed = -0.3 * self.mSpeed
         if kPressed[K_RIGHT]:
             rotate(self, True)
             self.angle += self.turnSpeed
@@ -190,19 +195,17 @@ class Car(pygame.sprite.Sprite):
             else:
                 self.totalSpeed = 0
         elif self.totalSpeed < 0:
-            if self.totalSpeed + self.friction <= 0:
-                self.totalSpeed += self.friction
+            if self.totalSpeed + 0.3 * self.friction <= 0:
+                self.totalSpeed += 0.3*self.friction
             else:
                 self.totalSpeed = 0
 
         realUpMovement = self.totalSpeed * math.cos(self.angle) + self.leftoverUpMovement
-        self.leftoverUpMovement = 0
         realSideMovement = self.totalSpeed * math.sin(self.angle) + self.leftoverSideMovement
-        self.leftoverSideMovement = 0
         roundedUpMovement = realUpMovement.__floor__()
-        self.leftoverUpMovement += realUpMovement - roundedUpMovement
+        self.leftoverUpMovement = realUpMovement - roundedUpMovement
         roundedSideMovement = realSideMovement.__floor__()
-        self.leftoverSideMovement += realSideMovement - roundedSideMovement
+        self.leftoverSideMovement = realSideMovement - roundedSideMovement
 
         tSpeed = roundedUpMovement
         
@@ -217,6 +220,7 @@ class Car(pygame.sprite.Sprite):
         self.mask.draw(pygame.mask.from_surface(self.surf), (0, 0)) # you can test this by setting 'self.maskSurf = self.mask.to_surface(setcolor = (255,0, 0, 255))' then blitting car.maskSurf onto the screen
 
         return tSpeed
+    
     def checkAngle(self):
         fx, fy = self.polyPoints[0]
         if (fx - self.surfDims/2) != 0:
@@ -284,6 +288,17 @@ class LaneLine(pygame.sprite.Sprite):
         elif self.rect.bottom < 0:
             self.rect.top = SCREEN_HEIGHT + self.height + self.rect.bottom
 
+class Walls(pygame.sprite.Sprite):
+    def __init__(self, width, isRight: bool, color):
+        super(Walls, self).__init__()
+        self.width = width
+        self.surf = pygame.surface.Surface((width, SCREEN_HEIGHT))
+        self.surf.fill(color)
+        self.rect = self.surf.get_rect()
+        self.mask = pygame.mask.Mask((width, SCREEN_HEIGHT), True)
+        if isRight:
+            self.rect.move_ip((SCREEN_WIDTH-width), 0)
+
 
 ### Instantiating sprites and sprite groups
 
@@ -291,6 +306,7 @@ class LaneLine(pygame.sprite.Sprite):
 allSprites = pygame.sprite.Group() #mostly for usefulness when using screen.blit()
 sensors = pygame.sprite.Group() #mostly for how easy it makes calling the update function
 laneLinesGroup = pygame.sprite.Group()
+walls = pygame.sprite.Group()
 
 ## the car
 car = Car(carWidth, carHeight, maxSpeed, acceleration, carTurnSpeed, friction)
@@ -320,6 +336,8 @@ for i in range(len(arcAngles)): # this for loop goes through each sensor positio
 for sprite in sensors:
     allSprites.add(sprite)
 
+
+## lane lines
 laneLines = list()
 for i in range(len(lanexPos)):
     laneLines.append(list())
@@ -328,6 +346,14 @@ for i in range(len(lanexPos)):
         laneLines[i].append(LaneLine(laneLineWidth, laneLineHeight, lanexPos[i], thisLaneStartingy))
         laneLinesGroup.add(laneLines[i][j])
         allSprites.add(laneLines[i][j])
+
+## walls
+rightWall = Walls(wallWidth, True, wallColor)
+leftWall = Walls(wallWidth, False, wallColor)
+walls.add(rightWall)
+walls.add(leftWall)
+for sprite in walls:
+    allSprites.add(sprite)
 
 running = True
 
@@ -346,6 +372,11 @@ while running:
     totalSpeed = car.update(keyPressed, totalSpeed) #using the pressed key to update the cars position (and, accordingly, the total speed variable)
     sensors.update(pPoints = car.polyPoints, cLeft = car.rect.left, cTop = car.rect.top, cAngle = car.angle) #adjusting the sensors so that they stay with the car
     laneLinesGroup.update(totalSpeed)
+
+    # if your car hits the wall, you die
+    if pygame.sprite.spritecollideany(car, walls, pygame.sprite.collide_mask):
+        car.kill()
+        running = False
 
     for sprite in allSprites:
         screen.blit(sprite.surf, sprite)

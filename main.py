@@ -186,20 +186,18 @@ class Car(pygame.sprite.Sprite):
                 self.totalSpeed = - self.reverseCoefficient * self.mSpeed
         if kPressed[K_RIGHT]: # rotating car right
             self.angle += self.turnSpeed
+            if abs(self.angle) < 0.01: self.angle = 0
+            
             self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angle, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
             self.surf.fill(BL)
             pygame.draw.polygon(self.surf, W, self.polyPoints) #clearing then drawing the new polygon
-
-            if abs(self.angle) < 0.01:
-                self.angle = 0
         if kPressed[K_LEFT]: #rotating car left
             self.angle -= self.turnSpeed
+            if abs(self.angle) < 0.01: self.angle = 0
+            
             self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angle, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
             self.surf.fill(BL)
             pygame.draw.polygon(self.surf, W, self.polyPoints) #clearing then drawing the new polygon
-
-            if abs(self.angle) < 0.01:
-                self.angle = 0
         
         # friction
         if self.totalSpeed > 0: # if car moving forwards

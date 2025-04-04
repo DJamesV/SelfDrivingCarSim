@@ -36,53 +36,46 @@ clock=pygame.time.Clock()
 ## Car vars
 carWidth = 50
 carHeight = carWidth*(7/3) #would recommend keeping this ratio - approximately the ratio with actual cars
-maxSpeed = 200/fRate #this is set relative to frame rate so that the speed stays constant even if the frame rate changes
+maxSpeed = 225/fRate #this is set relative to frame rate so that the speed stays constant even if the frame rate changes - would recommend choosing between 200 and 250
 acceleration = 30/fRate #this is set  relative to frame rate so that it will stay the same as the frame rate changes
 friction = 1/fRate #set relative to frame rate so it stays constant
 carTurnSpeed = 1.5*(1/8)*math.pi/fRate
-# Considering the rotate function just uses specifically things for Car, at this point it should be solely in the Car function, or have variables changed to be more universal,
-# but I currently have it here for editing purposes, etc. Will probably edit it to be one or the other at some point
-def rotate(object, turningRight : bool):
-    pPoints = list()
-    for point in object.polyPoints:
-        px, py = point
-        px -= object.surfDims/2
-        py -= object.surfDims/2
-        pPoints.append((px, py))
-    newPoints = list()
-    for point in pPoints:
-        if point[0] != 0:
-            theta = math.atan((point[1]/point[0]))
-            if point[0] < 0:
-                theta += math.pi
-        elif point[1] > 0:
-            theta = 0.5*math.pi
-        else:
-            theta = 1.5*math.pi
-        length = (point[0]**2 + point[1]**2)**0.5
 
-        if turningRight:
-            px = length*math.cos(theta+object.turnSpeed)
-            py = length*math.sin(theta+object.turnSpeed)
-        else:
-            px = length*math.cos(theta-object.turnSpeed)
-            py = length*math.sin(theta-object.turnSpeed)
+# custom rotate function for polygons (centers in surface) - under car vars because used solely by car
+# note: this function is optimized, so it only works for polygons with each point equidistant from the center of rotation
+#   honestly by this point it's not even a rotate function - it just returns a new polygon given the information
+def rotate(polyPoints, polyRadius, newAngle, angleDiffs : list, centerOfRotation: tuple):
+    # translating polygon so that it has the origin as the centerOfRotation (so it'll get rotated around the centerOfRotation)
+    # note: polygon points use the top left corner of the surface as the automatic point of origin
+    for i in range(len(polyPoints)):
+        px, py = polyPoints[i]
+        px -= centerOfRotation[0]
+        py -= centerOfRotation[1]
+        polyPoints[i] = (px, py)
+
+    # this is the part where rotating the polygon actually happens - distance from center and theta are used to rotate each point
+    newPoints = list()
+
+    for i in range(len(polyPoints)):
+        theta = newAngle + angleDiffs[i]
+        px = polyRadius*math.cos(theta)
+        py = polyRadius*math.sin(theta)
 
         newPoints.append((px, py))
 
-    for point in newPoints:
-        px, py = point
-        px += object.surfDims/2
-        py += object.surfDims/2
-        newPoints[newPoints.index(point)] = (px, py)
+    # translating polygon back to where it was
+    for i in range(len(newPoints)):
+        px, py = newPoints[i]
+        px += centerOfRotation[0]
+        py += centerOfRotation[1]
+        newPoints[i] = (px, py)
 
-    object.polyPoints = newPoints
-    object.surf.fill(BL)
-    object.polygon = pygame.draw.polygon(object.surf, W, newPoints)
+    return newPoints
 
 
 ## Sensor vars
 sensorWidth = 1 # width of arcs and lines used for sensors
+
 # line vars
 lineLengths = [200] # length of lines in list format - list not needed for code as currently written but here for flexibility. To add more line sensors, you'd adjust this, lineCenterCalc, and linePointsCalc
 def lineCenterCalc(carRect, iVal: int): # this is a function instead of a list due to the presence of values like carRect.top
@@ -91,6 +84,7 @@ def lineCenterCalc(carRect, iVal: int): # this is a function instead of a list d
 def linePointsCalc(carRect, iVal: int): # function instead of list due to presence of values like carRect
     linePoints = [((carRect.centerx, carRect.top), (carRect.centerx, (carRect.top)))]
     return linePoints[iVal]
+
 # arc vars - note: sensor generally refers to each group of arcs, arc refers to an individual arc
 arcNumber = 6 # number of seperate arcs per sensor, distributed over arcDistanceMin to arcDistanceMax
 arcDistanceMin = 10*2 # due to pygame quirks, this is half the distance the first arc will be put at from the car (hence the *2)
@@ -109,20 +103,24 @@ def arcCenterCalc(polyPoints, cTop, cLeft, iVal): # function due to dependency o
     thisy += cTop
     return thisx, thisy
 
+
 ## Lane vars
 laneLineWidth = 10
 laneLineHeight = 50
 lanexPos = [200, 400]
+
 
 ## Wall vars
 wallWidth = 30
 wallLightness = 70
 wallColor = (wallLightness, wallLightness, wallLightness)
 
+
 ## Shared vars
 totalSpeed = 0 # note: this var is positive for forward motion and negative for backwards motion
 
-# Initialize pygame
+
+### Initialize pygame
 pygame.init()
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT)) #setting up screen
@@ -136,71 +134,86 @@ class Car(pygame.sprite.Sprite):
         super(Car, self).__init__() # initializing the super useful Sprite class
         self.width = width
         self.height = height
-        self.surfDims = (width**2 + height**2)**0.5
-        self.mSpeed = mSpeed
-        self.accel = accel
-        self.friction = friction
+        self.surfDims = (width**2 + height**2)**0.5 # using the pythagorean theorem to find the max space a given rect can take up
+        self.mSpeed = mSpeed # maximum speed
+        self.accel = accel # acceleration rate
+        self.friction = friction # amount of friction (makes sure car stops)
         self.surf = pygame.Surface((self.surfDims, self.surfDims))
         self.surf.set_colorkey(BL) # here so that when I rotate everything it makes the extra padding transparent
-        self.surf.fill(BL)
-        xDiff = width/2 - self.surfDims/2
-        yDiff = height/2 - self.surfDims/2
-        self.polyPoints = [(-xDiff, -yDiff), (width - xDiff, -yDiff), (width - xDiff, height - yDiff), (-xDiff, height - yDiff)]
-        self.polygon = pygame.draw.polygon(self.surf, W, self.polyPoints)
-        self.mask = pygame.mask.from_surface(self.surf)
-        self.rect = self.surf.get_rect()
-        self.rect.center = ((SCREEN_WIDTH)/2, (SCREEN_HEIGHT)/2)
-        self.angle = 0 # setting current angle as 0 - in this case I've set 0 as pointing towards the top of the screen
-        self.turnSpeed = turnSpeed
-        self.maxTurnSpeed = turnSpeed
-        self.totalSpeed = 0
-        self.tick = 0
-        self.leftoverSideMovement = 0
+        self.surf.fill(BL) # using colorkey to make the whole surface transparent
+        xDiff = width/2 - self.surfDims/2 # used to setup polygon
+        yDiff = height/2 - self.surfDims/2 #used to setup polygon
+        self.polyPoints = [(-xDiff, -yDiff), (width - xDiff, -yDiff), (width - xDiff, height - yDiff), (-xDiff, height - yDiff)] # defining initial polygon points
+        self.polygon = pygame.draw.polygon(self.surf, W, self.polyPoints) # drawing polygon
+        self.mask = pygame.mask.from_surface(self.surf) # getting a bitmask (used for collision, pixel perfect collision for polygon)
+        self.rect = self.surf.get_rect() # useful for moving things, etc.
+        self.rect.center = ((SCREEN_WIDTH)/2, (SCREEN_HEIGHT)/2) #moving rect to center of the screen
+        self.angle = 0 # 0 is set as pointing straight up - used to keep track of the car's angle (matters for sensors)
+        self.turnSpeed = turnSpeed # rate at which the car turns - varies dependent on speed of car
+        self.maxTurnSpeed = turnSpeed # max rate at which the car can turn
+        self.totalSpeed = 0 # used to keep track of speed of car
+        self.leftoverSideMovement = 0 # used to keep motion smooth even when motion is less than a bit per frame
         self.leftoverUpMovement = 0
-        self.reverseCoefficient = 0.4
+        self.reverseCoefficient = 0.4 # cars move slower when backing up - this*speed = reverseSpeed
+        self.angleDiffs = list()
+        self.polygonRadius = ((self.polyPoints[0][0]-self.surfDims/2)**2 + (self.polyPoints[0][1]-self.surfDims/2)**2)**0.5
 
-        if self.polyPoints[0][0] != 0:
-            self.theta0 = math.atan(((self.polyPoints[0][1] - self.surfDims/2)/(self.polyPoints[0][0]- self.surfDims/2)))
-            if (self.polyPoints[0][0] - self.surfDims/2) < 0:
-                self.theta0 += math.pi
-        else:
-            self.theta0 = 0.5*math.pi
-            if (self.polyPoints[0][1] - self.surfDims/2) < 0:
-                self.theta0 += math.pi
+        for i in range(len(self.polyPoints)):
+            if self.polyPoints[i][0] != 0:
+                thisTheta = math.atan(((self.polyPoints[i][1] - self.surfDims/2)/(self.polyPoints[i][0]- self.surfDims/2)))
+                if (self.polyPoints[i][0] - self.surfDims/2) < 0:
+                    thisTheta += math.pi
+            else:
+                thisTheta = 0.5*math.pi
+                if (self.polyPoints[i][1] - self.surfDims/2) < 0:
+                    thisTheta += math.pi
+            self.angleDiffs.append(thisTheta)
 
     def update(self, kPressed, tSpeed):
+        ## moving things
         # cars y value won't change, but will move side to side and rotate
         # going 'faster' or 'slower' will change total speed (speed screen moves by), which will change perception of motion
-        # moving things
-        self.turnSpeed = self.maxTurnSpeed * (self.totalSpeed/self.mSpeed)
-        if kPressed[K_UP]:
+        self.turnSpeed = self.maxTurnSpeed * (self.totalSpeed/self.mSpeed) # making sure can't turn super fast when not moving
+        if kPressed[K_UP]: # moves car forward by accel (otherwise set car's speed to max)
             if (self.totalSpeed + self.accel) <= self.mSpeed:
                 self.totalSpeed += self.accel
             else:
                 self.totalSpeed = self.mSpeed
-        if kPressed[K_DOWN]:
+        if kPressed[K_DOWN]: # moves car forward by accel (otherwise set car's speed to max)
             if (self.totalSpeed - self.accel) >= - self.reverseCoefficient * self.mSpeed:
                 self.totalSpeed -= self.accel
             else:
                 self.totalSpeed = - self.reverseCoefficient * self.mSpeed
-        if kPressed[K_RIGHT]:
-            rotate(self, True)
+        if kPressed[K_RIGHT]: # rotating car right
             self.angle += self.turnSpeed
-        if kPressed[K_LEFT]:
-            rotate(self, False)
+            self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angle, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
+            self.surf.fill(BL)
+            pygame.draw.polygon(self.surf, W, self.polyPoints) #clearing then drawing the new polygon
+
+            if abs(self.angle) < 0.01:
+                self.angle = 0
+        if kPressed[K_LEFT]: #rotating car left
             self.angle -= self.turnSpeed
+            self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angle, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
+            self.surf.fill(BL)
+            pygame.draw.polygon(self.surf, W, self.polyPoints) #clearing then drawing the new polygon
+
+            if abs(self.angle) < 0.01:
+                self.angle = 0
         
-        if self.totalSpeed > 0:
+        # friction
+        if self.totalSpeed > 0: # if car moving forwards
             if self.totalSpeed - self.friction >= 0:
                 self.totalSpeed -= self.friction
             else:
                 self.totalSpeed = 0
-        elif self.totalSpeed < 0:
+        elif self.totalSpeed < 0: # if car moving backwards
             if self.totalSpeed + self.friction <= 0:
                 self.totalSpeed += self.friction
             else:
                 self.totalSpeed = 0
 
+        # making sure motion stays smooth (keeps track of leftover fractional pixels of movement)
         realUpMovement = self.totalSpeed * math.cos(self.angle) + self.leftoverUpMovement
         realSideMovement = self.totalSpeed * math.sin(self.angle) + self.leftoverSideMovement
         roundedUpMovement = realUpMovement.__floor__()
@@ -208,31 +221,16 @@ class Car(pygame.sprite.Sprite):
         roundedSideMovement = realSideMovement.__floor__()
         self.leftoverSideMovement = realSideMovement - roundedSideMovement
 
-        tSpeed = roundedUpMovement
+        tSpeed = roundedUpMovement # uses the whole number of the current movement speed
         
-        self.rect.move_ip(roundedSideMovement, 0)
-
-        self.tick += 1
-        if self.tick >= fRate: #currently gets called once every second
-            self.checkAngle()
-            self.tick = 0
+        self.rect.move_ip(roundedSideMovement, 0) # moving rect side to side
         
+        ## creates a new mask for the new shapemaskSurf
         self.mask.clear()
-        self.mask.draw(pygame.mask.from_surface(self.surf), (0, 0)) # you can test this by setting 'self.maskSurf = self.mask.to_surface(setcolor = (255,0, 0, 255))' then blitting car.maskSurf onto the screen
+        self.mask.draw(pygame.mask.from_surface(self.surf), (0, 0)) # you can test this by setting 'self. = self.mask.to_surface(setcolor = (255,0, 0, 255))' then blitting car.maskSurf onto the screen
 
-        return tSpeed
+        return tSpeed # returns the total speed so the screen can be updated
     
-    def checkAngle(self):
-        fx, fy = self.polyPoints[0]
-        if (fx - self.surfDims/2) != 0:
-            tempTheta = math.atan((fy-self.surfDims/2)/(fx-self.surfDims/2))
-            if (fx - self.surfDims/2) < 0:
-                tempTheta += math.pi
-        elif (fy - self.surfDims) > 0:
-            tempTheta = 0.5*math.pi
-        else:
-            tempTheta = 1.5*math.pi
-        self.angle = tempTheta - self.theta0
 
 # this class is for sensors in the form of lines as opposed to arcs
 class LineSensor(pygame.sprite.Sprite):
@@ -268,8 +266,12 @@ class ArcSensor(pygame.sprite.Sprite):
         self.collided = False
     def update(self, pPoints, cLeft, cTop, cAngle):
         self.rect.center = arcCenterCalc(pPoints, cTop, cLeft, self.iValue) # updates position to stay with car
+
+        # updating arc on surface
         self.surf.fill(BL)
         self.arc = pygame.draw.arc(self.surf, G, (0,0, self.width, self.height), self.startAngle - cAngle, self.stopAngle - cAngle, self.aWidth)
+
+        # updating arc's mask
         self.mask.clear()
         self.mask.draw(pygame.mask.from_surface(self.surf), (0,0))
 
@@ -284,7 +286,9 @@ class LaneLine(pygame.sprite.Sprite):
         self.rect = self.surf.get_rect()
         self.rect.x, self.rect.y = startingx, startingy
     def update(self, tSpeed):
+        # moving the lane lines proportionate to total speed
         self.rect.move_ip(0, tSpeed)
+        # wrapping the lane lines if off screen
         if self.rect.top > SCREEN_HEIGHT + self.height:
             self.rect.bottom = self.rect.top - (SCREEN_HEIGHT + self.height)
         elif self.rect.bottom < 0:
@@ -298,7 +302,7 @@ class Walls(pygame.sprite.Sprite):
         self.surf.fill(color)
         self.rect = self.surf.get_rect()
         self.mask = pygame.mask.Mask((width, SCREEN_HEIGHT), True)
-        if isRight:
+        if isRight: # if the wall is on the right side, move it to the right side
             self.rect.move_ip((SCREEN_WIDTH-width), 0)
 
 
@@ -383,6 +387,7 @@ while running:
         car.kill()
         running = False
 
+    # finding out if any sensors have been 'hit'
     for sprite in sensors:
         if sprite not in hiddenSensors:
             if pygame.sprite.spritecollideany(sprite, obstacles, pygame.sprite.collide_mask):
@@ -390,18 +395,19 @@ while running:
                 hiddenSensors.add(sprite)
                 sprite.collided = True
 
+    # finding out if any 'hit' sensors are now 'un-hit'
     for sprite in hiddenSensors:
         if not pygame.sprite.spritecollideany(sprite, obstacles, pygame.sprite.collide_mask):
             allSprites.add(sprite)
             hiddenSensors.remove(sprite)
             sprite.collided = False
 
-
+    # putting things on screen
     for sprite in allSprites:
         screen.blit(sprite.surf, sprite)
 
-    pygame.display.flip()
+    pygame.display.flip() # updating screen
 
-    clock.tick(30)
+    clock.tick(fRate) # setting frame rate
 
 pygame.quit()

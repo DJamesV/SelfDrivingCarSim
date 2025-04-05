@@ -40,6 +40,7 @@ maxSpeed = 225/fRate #this is set relative to frame rate so that the speed stays
 acceleration = 30/fRate #this is set  relative to frame rate so that it will stay the same as the frame rate changes
 friction = 1/fRate #set relative to frame rate so it stays constant
 carTurnSpeed = 1.5*(1/8)*math.pi/fRate
+carAngleRounder = carTurnSpeed/2
 
 # custom rotate function for polygons (centers in surface) - under car vars because used solely by car
 # note: this function is optimized, so it only works for polygons with each point equidistant from the center of rotation
@@ -104,16 +105,16 @@ def arcCenterCalc(polyPoints, cTop, cLeft, iVal): # function due to dependency o
     return thisx, thisy
 
 
-## Lane vars
-laneLineWidth = 10
-laneLineHeight = 50
-lanexPos = [200, 400]
-
-
 ## Wall vars
 wallWidth = 30
 wallLightness = 70
 wallColor = (wallLightness, wallLightness, wallLightness)
+
+## Lane vars
+laneLineWidth = 10
+laneLineHeight = 50
+lanexPos = [((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.33333 + wallWidth), ((SCREEN_WIDTH-2*wallWidth) * 0.66667 + wallWidth)]
+
 
 
 ## Shared vars
@@ -130,7 +131,7 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT)) #setting up scre
 
 # this class is for the Car the AI (or user) will be driving
 class Car(pygame.sprite.Sprite):
-    def __init__(self, width, height, mSpeed, accel, turnSpeed, friction):
+    def __init__(self, width, height, mSpeed, accel, turnSpeed, friction, angleRounder):
         super(Car, self).__init__() # initializing the super useful Sprite class
         self.width = width
         self.height = height
@@ -149,6 +150,8 @@ class Car(pygame.sprite.Sprite):
         self.rect = self.surf.get_rect() # useful for moving things, etc.
         self.rect.center = ((SCREEN_WIDTH)/2, (SCREEN_HEIGHT)/2) #moving rect to center of the screen
         self.angle = 0 # 0 is set as pointing straight up - used to keep track of the car's angle (matters for sensors)
+        self.angleUsed = 0 # used to make sure we don't have super small angles we have to deal with
+        self.angleRounder = angleRounder
         self.turnSpeed = turnSpeed # rate at which the car turns - varies dependent on speed of car
         self.maxTurnSpeed = turnSpeed # max rate at which the car can turn
         self.totalSpeed = 0 # used to keep track of speed of car
@@ -157,6 +160,7 @@ class Car(pygame.sprite.Sprite):
         self.reverseCoefficient = 0.4 # cars move slower when backing up - this*speed = reverseSpeed
         self.angleDiffs = list()
         self.polygonRadius = ((self.polyPoints[0][0]-self.surfDims/2)**2 + (self.polyPoints[0][1]-self.surfDims/2)**2)**0.5
+        self.tick = 0
 
         for i in range(len(self.polyPoints)):
             if self.polyPoints[i][0] != 0:
@@ -186,16 +190,18 @@ class Car(pygame.sprite.Sprite):
                 self.totalSpeed = - self.reverseCoefficient * self.mSpeed
         if kPressed[K_RIGHT]: # rotating car right
             self.angle += self.turnSpeed
-            if abs(self.angle) < 0.01: self.angle = 0
+            self.angleUsed = self.angleRounder * (round((self.angle/(self.angleRounder))))
+            if abs(self.angleUsed) < (self.angleRounder * math.pi)/2 or abs(2*math.pi - self.angleUsed) < (self.angleRounder * math.pi)/2: self.angleUsed = 0
             
-            self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angle, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
+            self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angleUsed, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
             self.surf.fill(BL)
             pygame.draw.polygon(self.surf, W, self.polyPoints) #clearing then drawing the new polygon
         if kPressed[K_LEFT]: #rotating car left
             self.angle -= self.turnSpeed
-            if abs(self.angle) < 0.01: self.angle = 0
+            self.angleUsed = self.angleRounder * (round((self.angle/(self.angleRounder))))
+            if abs(self.angleUsed) < (self.angleRounder * math.pi)/2 or abs(2*math.pi - self.angleUsed) < (self.angleRounder * math.pi)/2: self.angleUsed = 0
             
-            self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angle, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
+            self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angleUsed, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
             self.surf.fill(BL)
             pygame.draw.polygon(self.surf, W, self.polyPoints) #clearing then drawing the new polygon
         
@@ -212,12 +218,17 @@ class Car(pygame.sprite.Sprite):
                 self.totalSpeed = 0
 
         # making sure motion stays smooth (keeps track of leftover fractional pixels of movement)
-        realUpMovement = self.totalSpeed * math.cos(self.angle) + self.leftoverUpMovement
-        realSideMovement = self.totalSpeed * math.sin(self.angle) + self.leftoverSideMovement
+        realUpMovement = self.totalSpeed * math.cos(self.angleUsed) + self.leftoverUpMovement
+        realSideMovement = self.totalSpeed * math.sin(self.angleUsed) + self.leftoverSideMovement
         roundedUpMovement = realUpMovement.__floor__()
         self.leftoverUpMovement = realUpMovement - roundedUpMovement
         roundedSideMovement = realSideMovement.__floor__()
         self.leftoverSideMovement = realSideMovement - roundedSideMovement
+
+        # useful for debugging so you're not clogging up your console with print messages
+        # self.tick += 1
+        # if self.tick >= fRate:
+        #     self.tick = 0
 
         tSpeed = roundedUpMovement # uses the whole number of the current movement speed
         
@@ -228,6 +239,17 @@ class Car(pygame.sprite.Sprite):
         self.mask.draw(pygame.mask.from_surface(self.surf), (0, 0)) # you can test this by setting 'self. = self.mask.to_surface(setcolor = (255,0, 0, 255))' then blitting car.maskSurf onto the screen
 
         return tSpeed # returns the total speed so the screen can be updated
+    
+
+class OtherCars(pygame.sprite.Sprite):
+    def __init__(self, width, height, speed):
+        super(OtherCars, self).__init__()
+        self.width = width
+        self.height = height
+        self.surf = pygame.surface.Surface((width, height))
+        self.surf.fill(W)
+
+
     
 
 # this class is for sensors in the form of lines as opposed to arcs
@@ -315,7 +337,7 @@ laneLinesGroup = pygame.sprite.Group()
 walls = pygame.sprite.Group()
 
 ## the car
-car = Car(carWidth, carHeight, maxSpeed, acceleration, carTurnSpeed, friction)
+car = Car(carWidth, carHeight, maxSpeed, acceleration, carTurnSpeed, friction, carAngleRounder)
 allSprites.add(car)
 
 ## line sensor(s)

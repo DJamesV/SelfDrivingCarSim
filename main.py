@@ -79,12 +79,10 @@ sensorWidth = 1 # width of arcs and lines used for sensors
 
 # line vars
 lineLengths = [200] # length of lines in list format - list not needed for code as currently written but here for flexibility. To add more line sensors, you'd adjust this, lineCenterCalc, and linePointsCalc
-def lineCenterCalc(carRect, iVal: int): # this is a function instead of a list due to the presence of values like carRect.top
-    lineCenters = [(carRect.centerx, (carRect.top-lineLengths[iVal]))]
-    return lineCenters[iVal]
-def linePointsCalc(carRect, iVal: int): # function instead of list due to presence of values like carRect
-    linePoints = [((carRect.centerx, carRect.top), (carRect.centerx, (carRect.top)))]
+def linePointsCalc(polyPoints, width, height, length, angle, iVal: int): # function instead of list due to presence of values like carRect
+    linePoints = [((width/2, height/2), (width/2 + length*math.sin(angle), height/2 - length*math.cos(angle)), (car.rect.left+(polyPoints[0][0]+polyPoints[1][0])/2, car.rect.top + (polyPoints[0][1]+polyPoints[1][1])/2))]
     return linePoints[iVal]
+    # return (50,200), (60, 100), (200,200)
 
 # arc vars - note: sensor generally refers to each group of arcs, arc refers to an individual arc
 arcNumber = 6 # number of seperate arcs per sensor, distributed over arcDistanceMin to arcDistanceMax
@@ -178,6 +176,7 @@ class Car(pygame.sprite.Sprite):
         # cars y value won't change, but will move side to side and rotate
         # going 'faster' or 'slower' will change total speed (speed screen moves by), which will change perception of motion
         self.turnSpeed = self.maxTurnSpeed * (self.totalSpeed/self.mSpeed) # making sure can't turn super fast when not moving
+        turned = False
         if kPressed[K_UP]: # moves car forward by accel (otherwise set car's speed to max)
             if (self.totalSpeed + self.accel) <= self.mSpeed:
                 self.totalSpeed += self.accel
@@ -191,7 +190,8 @@ class Car(pygame.sprite.Sprite):
         if kPressed[K_RIGHT]: # rotating car right
             self.angle += self.turnSpeed
             self.angleUsed = self.angleRounder * (round((self.angle/(self.angleRounder))))
-            if abs(self.angleUsed) < (self.angleRounder * math.pi)/2 or abs(2*math.pi - self.angleUsed) < (self.angleRounder * math.pi)/2: self.angleUsed = 0
+            if abs(self.angleUsed) < (self.angleRounder)/2 or abs(2*math.pi - self.angleUsed) < (self.angleRounder)/2: self.angleUsed = 0
+            turned = True
             
             self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angleUsed, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
             self.surf.fill(BL)
@@ -200,6 +200,7 @@ class Car(pygame.sprite.Sprite):
             self.angle -= self.turnSpeed
             self.angleUsed = self.angleRounder * (round((self.angle/(self.angleRounder))))
             if abs(self.angleUsed) < (self.angleRounder * math.pi)/2 or abs(2*math.pi - self.angleUsed) < (self.angleRounder * math.pi)/2: self.angleUsed = 0
+            turned = True
             
             self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angleUsed, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
             self.surf.fill(BL)
@@ -225,10 +226,12 @@ class Car(pygame.sprite.Sprite):
         roundedSideMovement = realSideMovement.__floor__()
         self.leftoverSideMovement = realSideMovement - roundedSideMovement
 
-        # useful for debugging so you're not clogging up your console with print messages
-        # self.tick += 1
-        # if self.tick >= fRate:
-        #     self.tick = 0
+        # useful for things you don't want running every time (i.e. print statements used while debugging)
+        self.tick += 1
+        if self.tick >= fRate:
+            if not turned and abs(self.angle) < (self.turnSpeed)*(5/6) or abs(2*math.pi - self.angleUsed) < (self.angleRounder)*(5/6):
+                self.angle = 0
+            self.tick = 0
 
         tSpeed = roundedUpMovement # uses the whole number of the current movement speed
         
@@ -249,22 +252,37 @@ class OtherCars(pygame.sprite.Sprite):
         self.surf = pygame.surface.Surface((width, height))
         self.surf.fill(W)
 
-
     
 
 # this class is for sensors in the form of lines as opposed to arcs
 class LineSensor(pygame.sprite.Sprite):
-    def __init__(self, startPoint, endPoint, lWidth):
+    def __init__(self, startPoint, endPoint, center, length, lWidth, iVal):
         super(LineSensor, self).__init__()
         self.width = lWidth
-        self.height = abs(startPoint[1] - endPoint[1])
-        self.surf = pygame.Surface((self.width, self.height))
+        self.length = length
+        self.p0 = startPoint
+        self.p1 = endPoint
+        self.sensorType = 'line'
+        self.collided = False
+        self.surfDims = (lWidth**2 + length**2)**.5
+        self.iVal = iVal
+        #self.surf = pygame.Surface((self.surfDims, self.surfDims))
+        self.surf = pygame.Surface((self.surfDims*2, self.surfDims*2))
         self.surf.fill(BL)
         self.surf.set_colorkey(BL) # says I want everything colored black to actually be transparent
         self.rect = self.surf.get_rect()
         self.line = pygame.draw.line(self.surf, G, startPoint, endPoint, lWidth) # line and not rect is important because that means I can use the rect.clipline() function for collision detection purposes
-    def update(self, cRect):
-        self.rect.center = lineCenterCalc(cRect, self.iValue) # updates position to stay with car
+        self.rect.center = center
+        self.tick = 0
+    def update(self, pPoints, cAngle, **kwargs):
+        self.p0, self.p1, newCenter = linePointsCalc(pPoints, self.rect.width, self.rect.height, self.length, cAngle, self.iVal)
+        self.rect.center = newCenter
+        self.surf.fill(BL)
+        self.line = pygame.draw.line(self.surf, G, self.p0, self.p1, self.width)
+
+        # self.tick+=1
+        # if self.tick >= fRate:
+        #     self.tick=0
 
 # this class if for sensors in the form of lines as opposed to arcs
 class ArcSensor(pygame.sprite.Sprite):
@@ -273,6 +291,7 @@ class ArcSensor(pygame.sprite.Sprite):
         self.width = width
         self.height = height
         self.iValue = iValue
+        self.sensorType = 'arc'
         self.surf = pygame.Surface((width, height))
         self.surf.fill(BL)
         self.surf.set_colorkey(BL) # says I want everything colored black to actually be transparent
@@ -284,7 +303,8 @@ class ArcSensor(pygame.sprite.Sprite):
         self.mask = pygame.mask.from_surface(self.surf) # makes a mask (used for collision purposes) out of the arc I just drew
         self.rect.center = arcCenterCalc(car.polyPoints, car.rect.top, car.rect.left, i)
         self.collided = False
-    def update(self, pPoints, cLeft, cTop, cAngle):
+    def update(self, pPoints, cAngle, **kwargs):
+        cLeft, cTop = kwargs.get('cLeft'), kwargs.get('cTop')
         self.rect.center = arcCenterCalc(pPoints, cTop, cLeft, self.iValue) # updates position to stay with car
 
         # updating arc on surface
@@ -343,8 +363,10 @@ allSprites.add(car)
 ## line sensor(s)
 lines = []
 for i in range(len(lineLengths)):
-    thisLineCenter = lineCenterCalc(car.rect, i)
-    lines.append(LineSensor((car.rect.centerx, car.rect.top), (car.rect.centerx, (car.rect.top-lineLengths[i])), sensorWidth))
+    sD = (lineLengths[i]**2 + sensorWidth**2)**.5
+    linePoint0, linePoint1, center0 = linePointsCalc(car.polyPoints, 2*sD, sD, lineLengths[i], 0, i)
+    lines.append(LineSensor(linePoint0, linePoint1, center0, lineLengths[i], sensorWidth, i))
+    sensors.add(lines[i]) # please note that the sensors group is bulk added to allSprites
 
 
 ## arc sensors
@@ -361,8 +383,7 @@ for i in range(len(arcAngles)): # this for loop goes through each sensor positio
         sensors.add(arcs[i][j]) # adding arc to group
 
 # adds each individual arc and line to sensors
-for sprite in sensors:
-    allSprites.add(sprite)
+allSprites.add(sensors)
 
 
 ## lane lines
@@ -399,7 +420,7 @@ while running:
     
     keyPressed = pygame.key.get_pressed() #figuring out what key was pressed
     totalSpeed = car.update(keyPressed, totalSpeed) #using the pressed key to update the cars position (and, accordingly, the total speed variable)
-    sensors.update(pPoints = car.polyPoints, cLeft = car.rect.left, cTop = car.rect.top, cAngle = car.angle) #adjusting the sensors so that they stay with the car
+    sensors.update(pPoints = car.polyPoints, cAngle = car.angle, cLeft = car.rect.left, cTop = car.rect.top) #adjusting the sensors so that they stay with the car
     laneLinesGroup.update(totalSpeed)
 
     # if your car hits the wall, you die
@@ -410,17 +431,29 @@ while running:
     # finding out if any sensors have been 'hit'
     for sprite in sensors:
         if sprite not in hiddenSensors:
-            if pygame.sprite.spritecollideany(sprite, obstacles, pygame.sprite.collide_mask):
-                allSprites.remove(sprite)
-                hiddenSensors.add(sprite)
-                sprite.collided = True
+            if sprite.sensorType != 'line':
+                if pygame.sprite.spritecollideany(sprite, obstacles, pygame.sprite.collide_mask):
+                    allSprites.remove(sprite)
+                    hiddenSensors.add(sprite)
+                    sprite.collided = True
+            else:
+                if car.rect.clipline(sprite.p0, sprite.p1):
+                    allSprites.remove(sprite)
+                    hiddenSensors.add(sprite)
+                    sprite.collided = True
 
     # finding out if any 'hit' sensors are now 'un-hit'
     for sprite in hiddenSensors:
-        if not pygame.sprite.spritecollideany(sprite, obstacles, pygame.sprite.collide_mask):
-            allSprites.add(sprite)
-            hiddenSensors.remove(sprite)
-            sprite.collided = False
+        if sprite.sensorType != 'line':
+            if not pygame.sprite.spritecollideany(sprite, obstacles, pygame.sprite.collide_mask):
+                allSprites.add(sprite)
+                hiddenSensors.remove(sprite)
+                sprite.collided = False
+        else:
+            if not car.rect.clipline(sprite.p0, sprite.p1):
+                allSprites.add(sprite)
+                hiddenSensors.remove(sprite)
+                sprite.collided = False
 
     # putting things on screen
     for sprite in allSprites:

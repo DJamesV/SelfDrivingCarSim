@@ -273,12 +273,19 @@ class LineSensor(pygame.sprite.Sprite):
         self.rect = self.surf.get_rect()
         self.line = pygame.draw.line(self.surf, G, startPoint, endPoint, lWidth) # line and not rect is important because that means I can use the rect.clipline() function for collision detection purposes
         self.rect.center = center
+
+        self.p0actual = self.p0[0] + self.rect.x, self.p0[1] + self.rect.y
+        self.p1actual = self.p1[0] + self.rect.x, self.p1[1] + self.rect.y
+
         self.tick = 0
     def update(self, pPoints, cAngle, **kwargs):
         self.p0, self.p1, newCenter = linePointsCalc(pPoints, self.rect.width, self.rect.height, self.length, cAngle, self.iVal)
         self.rect.center = newCenter
         self.surf.fill(BL)
         self.line = pygame.draw.line(self.surf, G, self.p0, self.p1, self.width)
+
+        self.p0actual = self.p0[0] + self.rect.x, self.p0[1] + self.rect.y
+        self.p1actual = self.p1[0] + self.rect.x, self.p1[1] + self.rect.y
 
         # self.tick+=1
         # if self.tick >= fRate:
@@ -406,6 +413,7 @@ for sprite in walls:
     allSprites.add(sprite)
 
 running = True
+thisT = 0
 
 while running:
     for event in pygame.event.get():
@@ -437,10 +445,13 @@ while running:
                     hiddenSensors.add(sprite)
                     sprite.collided = True
             else:
-                if car.rect.clipline(sprite.p0, sprite.p1):
-                    allSprites.remove(sprite)
-                    hiddenSensors.add(sprite)
-                    sprite.collided = True
+                for obstacle in obstacles:
+                    if obstacle.rect.clipline(sprite.p0actual, sprite.p1actual):
+                        allSprites.remove(sprite)
+                        hiddenSensors.add(sprite)
+                        sprite.collided = True
+
+                        break
 
     # finding out if any 'hit' sensors are now 'un-hit'
     for sprite in hiddenSensors:
@@ -450,16 +461,23 @@ while running:
                 hiddenSensors.remove(sprite)
                 sprite.collided = False
         else:
-            if not car.rect.clipline(sprite.p0, sprite.p1):
+            collidedOnce = False
+            for obstacle in obstacles:
+                if obstacle.rect.clipline(sprite.p0actual, sprite.p1actual):
+                    collidedOnce = True
+            if not collidedOnce:
                 allSprites.add(sprite)
                 hiddenSensors.remove(sprite)
-                sprite.collided = False
 
     # putting things on screen
     for sprite in allSprites:
         screen.blit(sprite.surf, sprite)
 
     pygame.display.flip() # updating screen
+
+    # thisT+=1
+    # if thisT >= 30:
+    #     thisT = 0
 
     clock.tick(fRate) # setting frame rate
 

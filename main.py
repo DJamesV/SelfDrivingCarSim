@@ -79,8 +79,8 @@ sensorWidth = 1 # width of arcs and lines used for sensors
 
 # line vars
 lineLengths = [200] # length of lines in list format - list not needed for code as currently written but here for flexibility. To add more line sensors, you'd adjust this, lineCenterCalc, and linePointsCalc
-def linePointsCalc(polyPoints, width, height, length, angle, iVal: int): # function instead of list due to presence of values like carRect
-    linePoints = [((width/2, height/2), (width/2 + length*math.sin(angle), height/2 - length*math.cos(angle)), (car.rect.left+(polyPoints[0][0]+polyPoints[1][0])/2, car.rect.top + (polyPoints[0][1]+polyPoints[1][1])/2))]
+def linePointsCalc(polyPoints, width, height, length, amtShown, angle, iVal: int): # function instead of list due to presence of values like carRect
+    linePoints = [((width/2, height/2), (width/2 + length*math.sin(angle), height/2 - length*math.cos(angle)), (width/2 + amtShown*math.sin(angle), height/2 - amtShown*math.cos(angle)), (car.rect.left+(polyPoints[0][0]+polyPoints[1][0])/2, car.rect.top + (polyPoints[0][1]+polyPoints[1][1])/2))]
     return linePoints[iVal]
     # return (50,200), (60, 100), (200,200)
 
@@ -273,16 +273,18 @@ class LineSensor(pygame.sprite.Sprite):
         self.rect = self.surf.get_rect()
         self.line = pygame.draw.line(self.surf, G, startPoint, endPoint, lWidth) # line and not rect is important because that means I can use the rect.clipline() function for collision detection purposes
         self.rect.center = center
+        self.amtShown = self.length
+        self.pShown = endPoint
 
         self.p0actual = self.p0[0] + self.rect.x, self.p0[1] + self.rect.y
         self.p1actual = self.p1[0] + self.rect.x, self.p1[1] + self.rect.y
 
         self.tick = 0
     def update(self, pPoints, cAngle, **kwargs):
-        self.p0, self.p1, newCenter = linePointsCalc(pPoints, self.rect.width, self.rect.height, self.length, cAngle, self.iVal)
+        self.p0, self.p1, self.pShown, newCenter = linePointsCalc(pPoints, self.rect.width, self.rect.height, self.length, self.amtShown, cAngle, self.iVal)
         self.rect.center = newCenter
         self.surf.fill(BL)
-        self.line = pygame.draw.line(self.surf, G, self.p0, self.p1, self.width)
+        self.line = pygame.draw.line(self.surf, G, self.p0, self.pShown, self.width)
 
         self.p0actual = self.p0[0] + self.rect.x, self.p0[1] + self.rect.y
         self.p1actual = self.p1[0] + self.rect.x, self.p1[1] + self.rect.y
@@ -371,7 +373,7 @@ allSprites.add(car)
 lines = []
 for i in range(len(lineLengths)):
     sD = (lineLengths[i]**2 + sensorWidth**2)**.5
-    linePoint0, linePoint1, center0 = linePointsCalc(car.polyPoints, 2*sD, sD, lineLengths[i], 0, i)
+    linePoint0, linePoint1, lineSensorAmtShown, center0 = linePointsCalc(car.polyPoints, 2*sD, sD, lineLengths[i], lineLengths[i], 0, i)
     lines.append(LineSensor(linePoint0, linePoint1, center0, lineLengths[i], sensorWidth, i))
     sensors.add(lines[i]) # please note that the sensors group is bulk added to allSprites
 
@@ -447,7 +449,6 @@ while running:
             else:
                 for obstacle in obstacles:
                     if obstacle.rect.clipline(sprite.p0actual, sprite.p1actual):
-                        allSprites.remove(sprite)
                         hiddenSensors.add(sprite)
                         sprite.collided = True
 
@@ -463,11 +464,40 @@ while running:
         else:
             collidedOnce = False
             for obstacle in obstacles:
-                if obstacle.rect.clipline(sprite.p0actual, sprite.p1actual):
+                disSquared = 2*(sprite.length)**2
+                p0x, p0y = sprite.p0
+                pColls = obstacle.rect.clipline(sprite.p0actual, sprite.p1actual)
+
+                if pColls:
+                    pColl0, pColl1 = pColls
+
+                    absxDiff0 = abs((pColl0[0]-p0x))
+                    absxDiff1 = abs((pColl1[0]-p0x))
+
+                    if absxDiff0 < absxDiff1:
+                        newDisSquared = ((p0x-pColl0[0])**2+(p0y-pColl0[1])**2)
+                    elif absxDiff0 != absxDiff1:
+                        newDisSquared = ((p0x-pColl1[0])**2+(p0y-pColl1[1])**2)
+                    else:
+                        absyDiff0 = abs((pColl0[1]-p0y))
+                        absyDiff1 = abs((pColl1[1]-p0y))
+                        if absyDiff0 < absyDiff1:
+                            newDisSquared = ((p0x-pColl0[0])**2+(p0y-pColl0[1])**2)
+                        elif absyDiff0 != absyDiff1:
+                            newDisSquared = ((p0x-pColl1[0])**2+(p0y-pColl1[1])**2)
+                        else:
+                            newDisSquared = 0
+                    
+                    if newDisSquared < disSquared:
+                        disSquared = newDisSquared
+                    
                     collidedOnce = True
+            
+            sprite.amtShown = disSquared**.5
+
             if not collidedOnce:
-                allSprites.add(sprite)
                 hiddenSensors.remove(sprite)
+                sprite.amtShown = sprite.length
 
     # putting things on screen
     for sprite in allSprites:

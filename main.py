@@ -15,20 +15,24 @@ from pygame.locals import (
 )
 
 
-### Setting up vars
+### NEW SECTION: Setting up vars
+
 
 ## color codes
-W = (255,255,255) #white
-R = (255,0,0) #red
-G = (0,255,0) #green
-B = (0,0,255) #blue
-Y = (255,255,0) #yellow
-BL = (0,0,0) #black - note B for blue (as in rgb) and BL for BLack
+class Colors:
+    def __init__(self):
+        self.W = (255,255,255) #white
+        self.R = (255,0,0) #red
+        self.G = (0,255,0) #green
+        self.B = (0,0,255) #blue
+        self.Y = (255,255,0) #yellow
+        self.BL = (0,0,0) #black - note colors.B for blue (as in rgb) and colors.BL for BLack
+colors = Colors()
 screenLightness = 75 # how light a gray the background is - higher means lighter lower means darker, range 0-255
 screenColor = (screenLightness, screenLightness, screenLightness) # the color of the screen as a tuple (r,g,b)
 
 ##screen vars
-SCREEN_WIDTH = 600
+SCREEN_WIDTH = 400
 SCREEN_HEIGHT = 600
 fRate = 30 #frameRate
 clock=pygame.time.Clock()
@@ -42,7 +46,7 @@ friction = 1/fRate #set relative to frame rate so it stays constant
 carTurnSpeed = 1.5*(1/8)*math.pi/fRate
 carAngleRounder = carTurnSpeed/2
 
-# custom rotate function for polygons (centers in surface) - under car vars because used solely by car
+# custom rotate function for polygons (centers in surface); it's under car vars because used solely by car
 # note: this function is optimized, so it only works for polygons with each point equidistant from the center of rotation
 #   honestly by this point it's not even a rotate function - it just returns a new polygon given the information
 def rotate(polyPoints, polyRadius, newAngle, angleDiffs : list, centerOfRotation: tuple):
@@ -88,7 +92,8 @@ def linePointsCalc(polyPoints, width, height, length, amtShown, angle, iVal: int
 arcNumber = 6 # number of seperate arcs per sensor, distributed over arcDistanceMin to arcDistanceMax
 arcDistanceMin = 10*2 # due to pygame quirks, this is half the distance the first arc will be put at from the car (hence the *2)
 arcDistanceMax = 90*2 # half the distance the last arc will be put at
-arcIncrement = (arcDistanceMax-arcDistanceMin)/(arcNumber-1)
+arcIncrement = (arcDistanceMax-arcDistanceMin)/(arcNumber-1) #distance between arcs
+arcsHit = []
 #to add another arc sensor you'd adjust arcCenterCalc and arcAngles
 #use Pi for ease of change at least while still editing
 arcAngles = [[math.pi*(1/8), math.pi*(3/8)], [math.pi*(5/8), math.pi*(7/8)], [math.pi*(7/8), math.pi*(9/8)], [math.pi*(15/8), math.pi*(17/8)]] # angles I want each individual sensor to detect from to (note: in radians)
@@ -111,9 +116,33 @@ wallColor = (wallLightness, wallLightness, wallLightness)
 ## Lane vars
 laneLineWidth = 10
 laneLineHeight = 50
-lanexPos = [((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.33333 + wallWidth), ((SCREEN_WIDTH-2*wallWidth) * 0.66667 + wallWidth)]
+lanexPos = [((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.33333 + wallWidth), ((SCREEN_WIDTH-2*wallWidth-2*laneLineWidth) * 0.66667 + wallWidth + laneLineWidth)]
+laneBoundaries = [(wallWidth, ((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.33333 + wallWidth)), 
+                  (((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.33333 + wallWidth + laneLineWidth), ((SCREEN_WIDTH-2*wallWidth-2*laneLineWidth) * 0.66667 + wallWidth + laneLineWidth)),
+                    (((SCREEN_WIDTH-2*wallWidth-2*laneLineWidth) * 0.66667 + wallWidth + laneLineWidth*2), (SCREEN_HEIGHT-wallWidth))]
 
+## Other car vars
+coastSpeed = maxSpeed * 0.7
+spawnxVal = []
+mobs=[]
+for i in range(len(laneBoundaries)):
+    spawnxVal.append((laneBoundaries[i][0]+laneBoundaries[i][1])/2)
+def spawnMob(mobs: dict, mobClass, mobSpawnxVals):
+    amtOfMobsSpawned = random.randint(0, (len(mobSpawnxVals)-1))
+    mobSpawnxVal = mobSpawnxVals
+    randomIndex = random.randint(0, (len(mobSpawnxVals)-1))
 
+    if amtOfMobsSpawned == 1:
+        mobSpawnxVal = [mobSpawnxVal[randomIndex]]
+    elif amtOfMobsSpawned == 2:
+        mobSpawnxVal.pop(randomIndex)
+    for i in range(amtOfMobsSpawned):
+        mobs.append(mobClass(carWidth, carHeight, coastSpeed, (mobSpawnxVal[i], -carHeight)))
+
+    obstacles.add(mobs)
+    otherCarsGroup.add(mobs)
+    allSprites.add(mobs)
+    return mobs
 
 ## Shared vars
 totalSpeed = 0 # note: this var is positive for forward motion and negative for backwards motion
@@ -125,7 +154,7 @@ pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT)) #setting up screen
 
 
-### Setting up classes
+### NEW SECTION: Setting up classes
 
 # this class is for the Car the AI (or user) will be driving
 class Car(pygame.sprite.Sprite):
@@ -138,12 +167,12 @@ class Car(pygame.sprite.Sprite):
         self.accel = accel # acceleration rate
         self.friction = friction # amount of friction (makes sure car stops)
         self.surf = pygame.Surface((self.surfDims, self.surfDims))
-        self.surf.set_colorkey(BL) # here so that when I rotate everything it makes the extra padding transparent
-        self.surf.fill(BL) # using colorkey to make the whole surface transparent
+        self.surf.set_colorkey(colors.BL) # here so that when I rotate everything it makes the extra padding transparent
+        self.surf.fill(colors.BL) # using colorkey to make the whole surface transparent
         xDiff = width/2 - self.surfDims/2 # used to setup polygon
         yDiff = height/2 - self.surfDims/2 #used to setup polygon
         self.polyPoints = [(-xDiff, -yDiff), (width - xDiff, -yDiff), (width - xDiff, height - yDiff), (-xDiff, height - yDiff)] # defining initial polygon points
-        self.polygon = pygame.draw.polygon(self.surf, W, self.polyPoints) # drawing polygon
+        self.polygon = pygame.draw.polygon(self.surf, colors.W, self.polyPoints) # drawing polygon
         self.mask = pygame.mask.from_surface(self.surf) # getting a bitmask (used for collision, pixel perfect collision for polygon)
         self.rect = self.surf.get_rect() # useful for moving things, etc.
         self.rect.center = ((SCREEN_WIDTH)/2, (SCREEN_HEIGHT)/2) #moving rect to center of the screen
@@ -194,8 +223,8 @@ class Car(pygame.sprite.Sprite):
             turned = True
             
             self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angleUsed, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
-            self.surf.fill(BL)
-            pygame.draw.polygon(self.surf, W, self.polyPoints) #clearing then drawing the new polygon
+            self.surf.fill(colors.BL)
+            pygame.draw.polygon(self.surf, colors.W, self.polyPoints) #clearing then drawing the new polygon
         if kPressed[K_LEFT]: #rotating car left
             self.angle -= self.turnSpeed
             self.angleUsed = self.angleRounder * (round((self.angle/(self.angleRounder))))
@@ -203,8 +232,8 @@ class Car(pygame.sprite.Sprite):
             turned = True
             
             self.polyPoints = rotate(self.polyPoints, self.polygonRadius, self.angleUsed, self.angleDiffs, (self.surfDims/2, self.surfDims/2)) # using custom rotate function to rotate car            
-            self.surf.fill(BL)
-            pygame.draw.polygon(self.surf, W, self.polyPoints) #clearing then drawing the new polygon
+            self.surf.fill(colors.BL)
+            pygame.draw.polygon(self.surf, colors.W, self.polyPoints) #clearing then drawing the new polygon
         
         # friction
         if self.totalSpeed > 0: # if car moving forwards
@@ -245,12 +274,23 @@ class Car(pygame.sprite.Sprite):
     
 
 class OtherCars(pygame.sprite.Sprite):
-    def __init__(self, width, height, speed):
+    def __init__(self, width, height, speed, spawnPoint):
         super(OtherCars, self).__init__()
         self.width = width
         self.height = height
+        self.speed = speed
         self.surf = pygame.surface.Surface((width, height))
-        self.surf.fill(W)
+        self.rect = self.surf.get_rect()
+        self.surf.fill(colors.W)
+        self.mask = pygame.mask.from_surface(self.surf)
+        self.rect.topleft = spawnPoint
+    def update(self, tSpeed):
+        self.rect.move_ip(0, -(self.speed-tSpeed))
+        self.mask.draw(pygame.mask.from_surface(self.surf), (0,0))
+
+        if self.rect.top > SCREEN_HEIGHT:
+            self.kill()
+
 
     
 
@@ -268,10 +308,10 @@ class LineSensor(pygame.sprite.Sprite):
         self.iVal = iVal
         #self.surf = pygame.Surface((self.surfDims, self.surfDims))
         self.surf = pygame.Surface((self.surfDims*2, self.surfDims*2))
-        self.surf.fill(BL)
-        self.surf.set_colorkey(BL) # says I want everything colored black to actually be transparent
+        self.surf.fill(colors.BL)
+        self.surf.set_colorkey(colors.BL) # says I want everything colored black to actually be transparent
         self.rect = self.surf.get_rect()
-        self.line = pygame.draw.line(self.surf, G, startPoint, endPoint, lWidth) # line and not rect is important because that means I can use the rect.clipline() function for collision detection purposes
+        self.line = pygame.draw.line(self.surf, colors.G, startPoint, endPoint, lWidth) # line and not rect is important because that means I can use the rect.clipline() function for collision detection purposes
         self.rect.center = center
         self.amtShown = self.length
         self.pShown = endPoint
@@ -283,8 +323,8 @@ class LineSensor(pygame.sprite.Sprite):
     def update(self, pPoints, cAngle, **kwargs):
         self.p0, self.p1, self.pShown, newCenter = linePointsCalc(pPoints, self.rect.width, self.rect.height, self.length, self.amtShown, cAngle, self.iVal)
         self.rect.center = newCenter
-        self.surf.fill(BL)
-        self.line = pygame.draw.line(self.surf, G, self.p0, self.pShown, self.width)
+        self.surf.fill(colors.BL)
+        self.line = pygame.draw.line(self.surf, colors.G, self.p0, self.pShown, self.width)
 
         self.p0actual = self.p0[0] + self.rect.x, self.p0[1] + self.rect.y
         self.p1actual = self.p1[0] + self.rect.x, self.p1[1] + self.rect.y
@@ -302,12 +342,12 @@ class ArcSensor(pygame.sprite.Sprite):
         self.iValue = iValue
         self.sensorType = 'arc'
         self.surf = pygame.Surface((width, height))
-        self.surf.fill(BL)
-        self.surf.set_colorkey(BL) # says I want everything colored black to actually be transparent
+        self.surf.fill(colors.BL)
+        self.surf.set_colorkey(colors.BL) # says I want everything colored black to actually be transparent
         self.rect = self.surf.get_rect()
         self.startAngle = startAngle
         self.stopAngle = stopAngle
-        self.arc = pygame.draw.arc(self.surf, G, self.rect, startAngle, stopAngle, aWidth)
+        self.arc = pygame.draw.arc(self.surf, colors.G, self.rect, startAngle, stopAngle, aWidth)
         self.aWidth = aWidth
         self.mask = pygame.mask.from_surface(self.surf) # makes a mask (used for collision purposes) out of the arc I just drew
         self.rect.center = arcCenterCalc(car.polyPoints, car.rect.top, car.rect.left, i)
@@ -317,8 +357,8 @@ class ArcSensor(pygame.sprite.Sprite):
         self.rect.center = arcCenterCalc(pPoints, cTop, cLeft, self.iValue) # updates position to stay with car
 
         # updating arc on surface
-        self.surf.fill(BL)
-        self.arc = pygame.draw.arc(self.surf, G, (0,0, self.width, self.height), self.startAngle - cAngle, self.stopAngle - cAngle, self.aWidth)
+        self.surf.fill(colors.BL)
+        self.arc = pygame.draw.arc(self.surf, colors.G, (0,0, self.width, self.height), self.startAngle - cAngle, self.stopAngle - cAngle, self.aWidth)
 
         # updating arc's mask
         self.mask.clear()
@@ -331,7 +371,7 @@ class LaneLine(pygame.sprite.Sprite):
         self.width = width
         self.height = height
         self.surf = pygame.Surface((width, height))
-        self.surf.fill(W)
+        self.surf.fill(colors.W)
         self.rect = self.surf.get_rect()
         self.rect.x, self.rect.y = startingx, startingy
     def update(self, tSpeed):
@@ -355,7 +395,7 @@ class Walls(pygame.sprite.Sprite):
             self.rect.move_ip((SCREEN_WIDTH-width), 0)
 
 
-### Instantiating sprites and sprite groups
+### NEW SECTION: Instantiating sprites and sprite groups
 
 ## sprite groups
 allSprites = pygame.sprite.Group() # mostly for usefulness when using screen.blit()
@@ -364,6 +404,10 @@ sensors = pygame.sprite.Group() # mostly for how easy it makes calling the updat
 hiddenSensors = pygame.sprite.Group() # for when sensors see something and are no longer being blitted
 laneLinesGroup = pygame.sprite.Group()
 walls = pygame.sprite.Group()
+otherCarsGroup = pygame.sprite.Group() # MOBS!!! MUAHAHAHA
+
+mobSpawnTimer = pygame.USEREVENT + 1
+pygame.time.set_timer(mobSpawnTimer, 12000) # REPLACE NUMBER WITH VARIABLE
 
 ## the car
 car = Car(carWidth, carHeight, maxSpeed, acceleration, carTurnSpeed, friction, carAngleRounder)
@@ -385,6 +429,7 @@ arcs = list() # this list will hold every group of arc sensors, each item in the
 for i in range(len(arcAngles)): # this for loop goes through each sensor position, one top right, one top left, one back right, one back left
     # arcs is a list of list, so I'm defining each index of arc as an empty list
     arcs.append([])
+    arcsHit.append([])
     # this for loop creates every individual arc within a sensor
     for j in range(arcNumber):
         thisArcSize = arcDistanceMin+arcIncrement*j
@@ -424,17 +469,20 @@ while running:
         elif event.type == KEYDOWN:
             if event.key == K_ESCAPE:
                 running=False
-
+        elif event.type == mobSpawnTimer:
+            spawnMob(mobs, OtherCars, spawnxVal)
+            print("MOBS!!! RUN!!!!")
 
     screen.fill(screenColor)
     
     keyPressed = pygame.key.get_pressed() #figuring out what key was pressed
     totalSpeed = car.update(keyPressed, totalSpeed) #using the pressed key to update the cars position (and, accordingly, the total speed variable)
+    otherCarsGroup.update(totalSpeed)
     sensors.update(pPoints = car.polyPoints, cAngle = car.angle, cLeft = car.rect.left, cTop = car.rect.top) #adjusting the sensors so that they stay with the car
     laneLinesGroup.update(totalSpeed)
 
     # if your car hits the wall, you die
-    if pygame.sprite.spritecollideany(car, walls, pygame.sprite.collide_mask):
+    if pygame.sprite.spritecollideany(car, obstacles, pygame.sprite.collide_mask):
         car.kill()
         running = False
 
@@ -452,6 +500,9 @@ while running:
                         hiddenSensors.add(sprite)
                         sprite.collided = True
 
+                        if obstacle in mobs and thisT == 0:
+                            print(obstacle.rect.clipline(sprite.p0actual, sprite.p1actual))
+
                         break
 
     # finding out if any 'hit' sensors are now 'un-hit'
@@ -467,6 +518,9 @@ while running:
                 disSquared = 2*(sprite.length)**2
                 p0x, p0y = sprite.p0
                 pColls = obstacle.rect.clipline(sprite.p0actual, sprite.p1actual)
+
+                if obstacle in mobs and thisT == 0:
+                    print(pColls)
 
                 if pColls:
                     pColl0, pColl1 = pColls
@@ -505,9 +559,9 @@ while running:
 
     pygame.display.flip() # updating screen
 
-    # thisT+=1
-    # if thisT >= 30:
-    #     thisT = 0
+    thisT+=1
+    if thisT >= 30:
+        thisT = 0
 
     clock.tick(fRate) # setting frame rate
 

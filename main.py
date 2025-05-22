@@ -119,25 +119,32 @@ laneLineHeight = 50
 lanexPos = [((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.33333 + wallWidth), ((SCREEN_WIDTH-2*wallWidth-2*laneLineWidth) * 0.66667 + wallWidth + laneLineWidth)]
 laneBoundaries = [(wallWidth, ((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.33333 + wallWidth)), 
                   (((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.33333 + wallWidth + laneLineWidth), ((SCREEN_WIDTH-2*wallWidth-2*laneLineWidth) * 0.66667 + wallWidth + laneLineWidth)),
-                    (((SCREEN_WIDTH-2*wallWidth-2*laneLineWidth) * 0.66667 + wallWidth + laneLineWidth*2), (SCREEN_HEIGHT-wallWidth))]
+                    (((SCREEN_WIDTH-2*wallWidth-2*laneLineWidth) * 0.66667 + wallWidth + laneLineWidth*2), (SCREEN_WIDTH-wallWidth))]
 
 ## Other car vars
 coastSpeed = maxSpeed * 0.7
 spawnxVal = []
 mobs=[]
-for i in range(len(laneBoundaries)):
-    spawnxVal.append((laneBoundaries[i][0]+laneBoundaries[i][1])/2)
-def spawnMob(mobs: dict, mobClass, mobSpawnxVals):
-    amtOfMobsSpawned = random.randint(0, (len(mobSpawnxVals)-1))
-    mobSpawnxVal = mobSpawnxVals
+# for i in range(len(laneBoundaries)):
+#     spawnxVal.append((laneBoundaries[i][0]+laneBoundaries[i][1])/2)
+for tuple1 in laneBoundaries:
+    spawnxVal.append((tuple1[0]+tuple1[1])/2)
+    print(spawnxVal)
+print(spawnxVal)
+def spawnMob(mobs: dict, mobClass, mobSpawnxVals: list):
+    amtOfMobsSpawned = random.randint(0, (len(mobSpawnxVals)))
+    print(amtOfMobsSpawned)
+    mobSpawnxVal = mobSpawnxVals.copy()
     randomIndex = random.randint(0, (len(mobSpawnxVals)-1))
 
     if amtOfMobsSpawned == 1:
         mobSpawnxVal = [mobSpawnxVal[randomIndex]]
     elif amtOfMobsSpawned == 2:
         mobSpawnxVal.pop(randomIndex)
+
     for i in range(amtOfMobsSpawned):
         mobs.append(mobClass(carWidth, carHeight, coastSpeed, (mobSpawnxVal[i], -carHeight)))
+        print(mobSpawnxVal[i])
 
     obstacles.add(mobs)
     otherCarsGroup.add(mobs)
@@ -292,8 +299,6 @@ class OtherCars(pygame.sprite.Sprite):
             self.kill()
 
 
-    
-
 # this class is for sensors in the form of lines as opposed to arcs
 class LineSensor(pygame.sprite.Sprite):
     def __init__(self, startPoint, endPoint, center, length, lWidth, iVal):
@@ -407,7 +412,7 @@ walls = pygame.sprite.Group()
 otherCarsGroup = pygame.sprite.Group() # MOBS!!! MUAHAHAHA
 
 mobSpawnTimer = pygame.USEREVENT + 1
-pygame.time.set_timer(mobSpawnTimer, 12000) # REPLACE NUMBER WITH VARIABLE
+pygame.time.set_timer(mobSpawnTimer, 1200) # REPLACE NUMBER WITH VARIABLE
 
 ## the car
 car = Car(carWidth, carHeight, maxSpeed, acceleration, carTurnSpeed, friction, carAngleRounder)
@@ -415,7 +420,7 @@ allSprites.add(car)
 
 ## line sensor(s)
 lines = []
-for i in range(len(lineLengths)):
+for i in range(len(lineLengths)): # initializing line sensors
     sD = (lineLengths[i]**2 + sensorWidth**2)**.5
     linePoint0, linePoint1, lineSensorAmtShown, center0 = linePointsCalc(car.polyPoints, 2*sD, sD, lineLengths[i], lineLengths[i], 0, i)
     lines.append(LineSensor(linePoint0, linePoint1, center0, lineLengths[i], sensorWidth, i))
@@ -442,13 +447,17 @@ allSprites.add(sensors)
 
 ## lane lines
 laneLines = list()
-for i in range(len(lanexPos)):
+for i in range(len(lanexPos)): # initializes lane lines
     laneLines.append(list())
     for j in range((math.ceil(SCREEN_HEIGHT/(laneLineHeight*2)))+1):
         thisLaneStartingy = laneLineHeight*2*j
         laneLines[i].append(LaneLine(laneLineWidth, laneLineHeight, lanexPos[i], thisLaneStartingy))
         laneLinesGroup.add(laneLines[i][j])
         allSprites.add(laneLines[i][j])
+
+#### LINES BECAUSE I NEED THEM!!!!!!
+for i in range(laneBoundaries):
+    x=1
 
 ## walls
 rightWall = Walls(wallWidth, True, wallColor)
@@ -501,6 +510,7 @@ while running:
                         sprite.collided = True
 
                         if obstacle in mobs and thisT == 0:
+                            print("that one")
                             print(obstacle.rect.clipline(sprite.p0actual, sprite.p1actual))
 
                         break
@@ -514,15 +524,12 @@ while running:
                 sprite.collided = False
         else:
             collidedOnce = False
+            disSquared = 2*(sprite.length)**2
             for obstacle in obstacles:
-                disSquared = 2*(sprite.length)**2
                 p0x, p0y = sprite.p0
                 pColls = obstacle.rect.clipline(sprite.p0actual, sprite.p1actual)
 
-                if obstacle in mobs and thisT == 0:
-                    print(pColls)
-
-                if pColls:
+                if len(pColls) > 0:
                     pColl0, pColl1 = pColls
 
                     absxDiff0 = abs((pColl0[0]-p0x))
@@ -546,7 +553,7 @@ while running:
                         disSquared = newDisSquared
                     
                     collidedOnce = True
-            
+                    
             sprite.amtShown = disSquared**.5
 
             if not collidedOnce:

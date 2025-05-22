@@ -78,6 +78,33 @@ def rotate(polyPoints, polyRadius, newAngle, angleDiffs : list, centerOfRotation
     return newPoints
 
 
+def lerp(a, b, t):
+    return a + (b-a)*t
+
+def lineIntersects(line1, rect):
+    a = line1.p0actual
+    b = line1.p1actual
+
+    for i in range(1):
+        # bottom line
+        c = rect.bottomleft
+        d = rect.bottomright
+        print(f"({a[0]}, {a[1]}), ({b[0]}, {b[1]}) ({c[0]}, {c[1]}) ({d[0]}, {d[1]})")
+        # print(c, d)
+        top = (d[0] - c[0]) * (a[1] - c[1]) - (d[1] - c[1]) * (a[0]-c[0])
+        uTop = (c[1] - a[1])*(a[0] - b[0])-(c[0]-a[0])*(a[1]-b[1])
+        bottom = (d[1]-c[1])*(b[0]-a[0])-(d[0]-c[0])*(b[1]-a[1])
+
+        if bottom != 0:
+            t = top/bottom
+            u = uTop/bottom
+
+            if(t >= 0 and t<= 1 and u >= 0 and u <= 1):
+
+                return (lerp(a[0], b[0], t), lerp(a[1], b[1], t))
+    
+    return (0, 0) # placeholder null
+
 ## Sensor vars
 sensorWidth = 1 # width of arcs and lines used for sensors
 
@@ -456,7 +483,7 @@ for i in range(len(lanexPos)): # initializes lane lines
         allSprites.add(laneLines[i][j])
 
 #### LINES BECAUSE I NEED THEM!!!!!!
-for i in range(laneBoundaries):
+for i in range(len(laneBoundaries)):
     x=1
 
 ## walls
@@ -504,16 +531,30 @@ while running:
                     hiddenSensors.add(sprite)
                     sprite.collided = True
             else:
+
+
                 for obstacle in obstacles:
-                    if obstacle.rect.clipline(sprite.p0actual, sprite.p1actual):
-                        hiddenSensors.add(sprite)
-                        sprite.collided = True
+                    # hiddenSensors.add(sprite)
+                    sprite.collided = True
+                
+                    point = lineIntersects(sprite, obstacle.rect)
+                    if(point[0] != 0 and point[1] != 0):
+                        pygame.draw.circle(screen, (0, 0, 0), point, 15, 1)
+                    #allSprites.add(surf)
+                    # print(point)
+                    # sprite.amtShown = ((sprite.p0actual[0] - sprite.p0actual[1])**2) + ((point[0] - point[1])**2)
+                    
+     
+                    # sprite.length += 1
+                    # print(obstacle.rect)
 
-                        if obstacle in mobs and thisT == 0:
-                            print("that one")
-                            print(obstacle.rect.clipline(sprite.p0actual, sprite.p1actual))
+                    #if obstacle in mobs and thisT == 0:
+                        # print(obstacle)
+                        # print("LINE COLLIDE")
+                        
+                        # print(obstacle.rect)
 
-                        break
+                        #break
 
     # finding out if any 'hit' sensors are now 'un-hit'
     for sprite in hiddenSensors:
@@ -524,12 +565,15 @@ while running:
                 sprite.collided = False
         else:
             collidedOnce = False
-            disSquared = 2*(sprite.length)**2
             for obstacle in obstacles:
+                disSquared = 2*(sprite.length)**2
                 p0x, p0y = sprite.p0
                 pColls = obstacle.rect.clipline(sprite.p0actual, sprite.p1actual)
 
-                if len(pColls) > 0:
+                # if obstacle in mobs and thisT == 0:
+                #     # print(pColls)
+
+                if pColls:
                     pColl0, pColl1 = pColls
 
                     absxDiff0 = abs((pColl0[0]-p0x))
@@ -553,7 +597,7 @@ while running:
                         disSquared = newDisSquared
                     
                     collidedOnce = True
-                    
+            
             sprite.amtShown = disSquared**.5
 
             if not collidedOnce:

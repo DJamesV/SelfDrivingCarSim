@@ -105,8 +105,6 @@ def lineIntersects(line1, rect):
     
     return (0, 0) # placeholder null
 
-
-
 ## Sensor vars
 sensorWidth = 1 # width of arcs and lines used for sensors
 
@@ -154,19 +152,26 @@ laneBoundaries = [(wallWidth, ((SCREEN_WIDTH-2*wallWidth - 2*laneLineWidth) * 0.
 coastSpeed = maxSpeed * 0.7
 spawnxVal = []
 mobs=[]
-for i in range(len(laneBoundaries)):
-    spawnxVal.append((laneBoundaries[i][0]+laneBoundaries[i][1])/2)
-def spawnMob(mobs: dict, mobClass, mobSpawnxVals):
+# for i in range(len(laneBoundaries)):
+#     spawnxVal.append((laneBoundaries[i][0]+laneBoundaries[i][1])/2)
+for tuple1 in laneBoundaries:
+    spawnxVal.append((tuple1[0]+tuple1[1])/2)
+    print(spawnxVal)
+print(spawnxVal)
+def spawnMob(mobs: dict, mobClass, mobSpawnxVals: list):
     amtOfMobsSpawned = random.randint(0, (len(mobSpawnxVals)))
-    mobSpawnxVal = mobSpawnxVals
+    print(amtOfMobsSpawned)
+    mobSpawnxVal = mobSpawnxVals.copy()
     randomIndex = random.randint(0, (len(mobSpawnxVals)-1))
 
     if amtOfMobsSpawned == 1:
         mobSpawnxVal = [mobSpawnxVal[randomIndex]]
     elif amtOfMobsSpawned == 2:
         mobSpawnxVal.pop(randomIndex)
+
     for i in range(amtOfMobsSpawned):
         mobs.append(mobClass(carWidth, carHeight, coastSpeed, (mobSpawnxVal[i], -carHeight)))
+        print(mobSpawnxVal[i])
 
     obstacles.add(mobs)
     otherCarsGroup.add(mobs)
@@ -320,8 +325,6 @@ class OtherCars(pygame.sprite.Sprite):
         if self.rect.top > SCREEN_HEIGHT:
             self.kill()
 
-flip  = False
-    
 
 # this class is for sensors in the form of lines as opposed to arcs
 class LineSensor(pygame.sprite.Sprite):
@@ -353,8 +356,6 @@ class LineSensor(pygame.sprite.Sprite):
         self.p0, self.p1, self.pShown, newCenter = linePointsCalc(pPoints, self.rect.width, self.rect.height, self.length, self.amtShown, cAngle, self.iVal)
         self.rect.center = newCenter
         self.surf.fill(colors.BL)
-        # print("LEN")
-        # print(self.length)
         self.line = pygame.draw.line(self.surf, colors.G, self.p0, self.pShown, self.width)
 
         self.p0actual = self.p0[0] + self.rect.x, self.p0[1] + self.rect.y
@@ -446,7 +447,7 @@ allSprites.add(car)
 
 ## line sensor(s)
 lines = []
-for i in range(len(lineLengths)):
+for i in range(len(lineLengths)): # initializing line sensors
     sD = (lineLengths[i]**2 + sensorWidth**2)**.5
     linePoint0, linePoint1, lineSensorAmtShown, center0 = linePointsCalc(car.polyPoints, 2*sD, sD, lineLengths[i], lineLengths[i], 0, i)
     lines.append(LineSensor(linePoint0, linePoint1, center0, lineLengths[i], sensorWidth, i))
@@ -473,13 +474,17 @@ allSprites.add(sensors)
 
 ## lane lines
 laneLines = list()
-for i in range(len(lanexPos)):
+for i in range(len(lanexPos)): # initializes lane lines
     laneLines.append(list())
     for j in range((math.ceil(SCREEN_HEIGHT/(laneLineHeight*2)))+1):
         thisLaneStartingy = laneLineHeight*2*j
         laneLines[i].append(LaneLine(laneLineWidth, laneLineHeight, lanexPos[i], thisLaneStartingy))
         laneLinesGroup.add(laneLines[i][j])
         allSprites.add(laneLines[i][j])
+
+#### LINES BECAUSE I NEED THEM!!!!!!
+for i in range(len(laneBoundaries)):
+    x=1
 
 ## walls
 rightWall = Walls(wallWidth, True, wallColor)
@@ -502,7 +507,7 @@ while running:
                 running=False
         elif event.type == mobSpawnTimer:
             spawnMob(mobs, OtherCars, spawnxVal)
-            # print("MOBS!!! RUN!!!!")
+            print("MOBS!!! RUN!!!!")
 
     screen.fill(screenColor)
     
